@@ -1,20 +1,23 @@
 import os
 import logging
 import base64
+import requests
 from fastapi import FastAPI, Request, Header, HTTPException
 from telegram import Update, Bot
-from openai import OpenAI
+from dotenv import load_dotenv
+
+# .env dosyasındaki değişkenleri sisteme yükle
+load_dotenv()
 
 logging.basicConfig(level=logging.INFO)
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
 WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET")
-ALLOWED_USER_ID = os.environ.get("ALLOWED_USER_ID") # 🔒 Kendi Telegram ID'n buraya gelecek
+ALLOWED_USER_ID = os.environ.get("ALLOWED_USER_ID")
 
 app = FastAPI()
 bot = Bot(token=TELEGRAM_TOKEN)
-client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=OPENROUTER_API_KEY)
 
 def split_message(text, max_length=1000):
     """Instagram DM sınırı (1000 karakter) için kelimeleri bölmeden parçalar."""
@@ -46,7 +49,6 @@ async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: st
             from_user_id = update.message.from_user.id
             if str(from_user_id) != ALLOWED_USER_ID:
                 logging.warning(f"Yetkisiz kullanici engellendi! ID: {from_user_id}")
-                # Sessizce sonlandırıyoruz, bot adama cevap bile vermiyor. Tam bir gizlilik.
                 return {"status": "unauthorized"}
 
             if update.message.voice:
@@ -60,12 +62,17 @@ async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: st
                 with open(file_path, "rb") as audio_file:
                     base64_audio = base64.b64encode(audio_file.read()).decode("utf-8")
                 
-                # OpenRouter Çağrısı (İngilizce Talimat -> Türkçe Çıktı)
-                response = client.chat.completions.create(
-                    model="google/gemini-2.5-flash", 
-                    max_tokens=400, 
-                    temperature=0.3,
-                    messages=[
+                # OpenRouter REST API HTTP Çağrısı
+                headers = {
+                    "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                    "Content-Type": "application/json"
+                }
+                
+                payload = {
+                    "model": "google/gemini-2.5-flash", 
+                    "max_tokens": 400, 
+                    "temperature": 0.3,
+                    "messages": [
                         {
                             "role": "system",
                             "content": (
@@ -84,9 +91,19 @@ async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: st
                             ]
                         }
                     ]
+                }
+                
+                response = requests.post(
+                    "https://openrouter.ai/api/v1/chat/completions",
+                    headers=headers,
+                    json=payload
                 )
                 
-                response_text = response.choices[0].message.content
+                if response.status_code != 200:
+                    raise Exception(f"OpenRouter API Hatasi: {response.text}")
+                
+                response_json = response.json()
+                response_text = response_json["choices"][0]["message"]["content"]
                 
                 if os.path.exists(file_path):
                     os.remove(file_path)
