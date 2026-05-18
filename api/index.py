@@ -23,11 +23,9 @@ ALLOWED_USER_ID = os.environ.get("ALLOWED_USER_ID")
 app = FastAPI()
 bot = Bot(token=TELEGRAM_TOKEN)
 
-# Gemini 2.0 Flash Fiyatlandırması (OpenRouter)
-# Prompt: $0.10 / 1M tokens
-# Completion: $0.40 / 1M tokens
-PRICE_PROMPT = 0.10 / 1_000_000
-PRICE_COMPLETION = 0.40 / 1_000_000
+# Sabitler
+TARGET_MODEL = "google/gemini-2.0-flash-001"
+MODEL_PRICES_CACHE = {}
 
 MODES = {
     "tldr": {
@@ -46,6 +44,33 @@ MODES = {
         "prompt": "Transkripti çıkarırken imla ve anlatımı düzelt, akıcı Türkçe ile yeniden yaz."
     }
 }
+
+async def get_dynamic_pricing(model_id: str):
+    """OpenRouter API'den güncel fiyatlandırmayı çeker."""
+    global MODEL_PRICES_CACHE
+    if model_id in MODEL_PRICES_CACHE:
+        return MODEL_PRICES_CACHE[model_id]
+    
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get("https://openrouter.ai/api/v1/models")
+            if response.status_code == 200:
+                models = response.json().get("data", [])
+                for m in models:
+                    if m["id"] == model_id:
+                        pricing = m.get("pricing", {})
+                        p = {
+                            "prompt": float(pricing.get("prompt", 0)),
+                            "completion": float(pricing.get("completion", 0))
+                        }
+                        MODEL_PRICES_CACHE[model_id] = p
+                        logger.info(f"Fiyatlandırma güncellendi: {model_id} -> {p}")
+                        return p
+    except Exception as e:
+        logger.error(f"Fiyat çekme hatası: {e}")
+    
+    # Fallback (API patlarsa varsayılan değerler)
+    return {"prompt": 0.0000001, "completion": 0.0000004}
 
 def split_message(text: str, max_length: int = 4000) -> list[str]:
     if not text: return []
@@ -84,8 +109,11 @@ async def process_voice(chat_id, file_id, mode="tldr", message_id=None):
             with open(file_path, "rb") as audio_file:
                 base64_audio = base64.b64encode(audio_file.read()).decode("utf-8")
 
+            # Fiyatları ve AI yanıtını paralel veya sırayla al (Zaman tasarrufu için fiyatı önden çekebiliriz)
+            pricing_task = asyncio.create_task(get_dynamic_pricing(TARGET_MODEL))
+
             payload = {
-                "model": "google/gemini-2.0-flash-001",
+                "model": TARGET_MODEL,
                 "messages": [
                     {"role": "system", "content": MODES[mode]["prompt"]},
                     {
@@ -112,9 +140,12 @@ async def process_voice(chat_id, file_id, mode="tldr", message_id=None):
             res_text = res_data["choices"][0]["message"]["content"]
             usage = res_data.get("usage", {})
             
+            # Dinamik fiyatları al
+            current_prices = await pricing_task
+            
             prompt_tokens = usage.get("prompt_tokens", 0)
             completion_tokens = usage.get("completion_tokens", 0)
-            total_cost = (prompt_tokens * PRICE_PROMPT) + (completion_tokens * PRICE_COMPLETION)
+            total_cost = (prompt_tokens * current_prices["prompt"]) + (completion_tokens * current_prices["completion"])
 
             chunks = split_message(res_text)
             copyable_text = f"<code>{chunks[0]}</code>"
@@ -130,7 +161,6 @@ async def process_voice(chat_id, file_id, mode="tldr", message_id=None):
             for c in chunks[1:]:
                 await bot.send_message(chat_id=chat_id, text=f"<code>{c}</code>", parse_mode=ParseMode.HTML)
 
-            # Maliyet bilgisini gönder
             cost_msg = (
                 f"📊 <b>Kullanım Özeti:</b>\n"
                 f"├ Token: {prompt_tokens + completion_tokens} (P: {prompt_tokens}, C: {completion_tokens})\n"
