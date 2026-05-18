@@ -23,6 +23,12 @@ ALLOWED_USER_ID = os.environ.get("ALLOWED_USER_ID")
 app = FastAPI()
 bot = Bot(token=TELEGRAM_TOKEN)
 
+# Gemini 2.0 Flash Fiyatlandırması (OpenRouter)
+# Prompt: $0.10 / 1M tokens
+# Completion: $0.40 / 1M tokens
+PRICE_PROMPT = 0.10 / 1_000_000
+PRICE_COMPLETION = 0.40 / 1_000_000
+
 MODES = {
     "tldr": {
         "label": "📝 Özet",
@@ -54,7 +60,6 @@ def split_message(text: str, max_length: int = 4000) -> list[str]:
     return chunks
 
 def get_mode_keyboard():
-    """Mod seçimi butonlarını oluşturur."""
     buttons = [[
         InlineKeyboardButton(MODES["tldr"]["label"], callback_data="tldr"),
         InlineKeyboardButton(MODES["trans"]["label"], callback_data="trans"),
@@ -93,7 +98,7 @@ async def process_voice(chat_id, file_id, mode="tldr", message_id=None):
                 ]
             }
 
-            async with httpx.AsyncClient(timeout=25.0) as client:
+            async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.post(
                     "https://openrouter.ai/api/v1/chat/completions",
                     headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}", "Content-Type": "application/json"},
@@ -103,10 +108,15 @@ async def process_voice(chat_id, file_id, mode="tldr", message_id=None):
             if response.status_code != 200:
                 raise Exception(f"API Hatası: {response.status_code}")
 
-            res_text = response.json()["choices"][0]["message"]["content"]
-            chunks = split_message(res_text)
+            res_data = response.json()
+            res_text = res_data["choices"][0]["message"]["content"]
+            usage = res_data.get("usage", {})
             
-            # Telegram'da üzerine tıklandığında kopyalanması için <code> tagı içine alıyoruz
+            prompt_tokens = usage.get("prompt_tokens", 0)
+            completion_tokens = usage.get("completion_tokens", 0)
+            total_cost = (prompt_tokens * PRICE_PROMPT) + (completion_tokens * PRICE_COMPLETION)
+
+            chunks = split_message(res_text)
             copyable_text = f"<code>{chunks[0]}</code>"
             
             await bot.edit_message_text(
@@ -118,11 +128,15 @@ async def process_voice(chat_id, file_id, mode="tldr", message_id=None):
             )
 
             for c in chunks[1:]:
-                await bot.send_message(
-                    chat_id=chat_id, 
-                    text=f"<code>{c}</code>", 
-                    parse_mode=ParseMode.HTML
-                )
+                await bot.send_message(chat_id=chat_id, text=f"<code>{c}</code>", parse_mode=ParseMode.HTML)
+
+            # Maliyet bilgisini gönder
+            cost_msg = (
+                f"📊 <b>Kullanım Özeti:</b>\n"
+                f"├ Token: {prompt_tokens + completion_tokens} (P: {prompt_tokens}, C: {completion_tokens})\n"
+                f"└ Maliyet: <code>${total_cost:.5f}</code>"
+            )
+            await bot.send_message(chat_id=chat_id, text=cost_msg, parse_mode=ParseMode.HTML)
 
         finally:
             if os.path.exists(file_path): os.remove(file_path)
