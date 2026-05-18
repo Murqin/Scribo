@@ -3,6 +3,7 @@ import logging
 import base64
 import httpx
 import secrets
+import asyncio
 from fastapi import FastAPI, Request, Header, HTTPException
 from telegram import Update, Bot, InlineKeyboardButton, InlineKeyboardMarkup
 from dotenv import load_dotenv
@@ -17,33 +18,24 @@ OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
 WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET")
 ALLOWED_USER_ID = os.environ.get("ALLOWED_USER_ID")
 
-if not all([TELEGRAM_TOKEN, OPENROUTER_API_KEY, WEBHOOK_SECRET, ALLOWED_USER_ID]):
-    logger.error("KRİTİK HATA: Ortam değişkenleri eksik!")
-
 app = FastAPI()
 bot = Bot(token=TELEGRAM_TOKEN)
 
-# Mod tanımları
 MODES = {
     "tldr": {
-        "label": "📝 TL;DR (Özet)",
+        "label": "📝 Özet",
         "prompt": (
-            "Sen bir asistan gibi değil, kullanıcının bizzat kendisi gibi konuşmalısın. "
-            "Ses kaydındaki düşünceleri, sanki sen (kullanıcı) arkadaşlarına anlatıyormuşsun gibi 'ben' diliyle (1. tekil şahıs) özetle. "
-            "Giriş cümleleri veya sonuç cümleleri ASLA kullanma. Doğrudan konuya gir. "
-            "Samimi, aşırı rahat, 'agalar' jargonuna sahip bir dil kullan. Maksimum 2-3 kısa madde kullan. Çıktı Türkçe olmalı."
+            "Kullanıcının kendisi gibi, 1. tekil şahısla, samimi/agalar jargonunda, "
+            "giriş/sonuç cümlesiz, 2-3 maddeyle Türkçe özetle."
         )
     },
-    "transcript": {
+    "trans": {
         "label": "✍️ Transkript",
-        "prompt": "Ses kaydını kelimesi kelimesine Türkçe transkript haline getir. Hiçbir yorum veya ekleme yapma. Sadece konuşulanları yaz."
+        "prompt": "Ses kaydını kelimesi kelimesine Türkçe transkript yap. Yorum ekleme."
     },
     "fix": {
-        "label": "🛠️ Düzeltilmiş Metin",
-        "prompt": (
-            "Bu ses kaydının transkriptini çıkarırken imla hatalarını düzelt, anlatım bozukluklarını gider ve "
-            "daha profesyonel/akıcı bir Türkçe ile yeniden kurgula. Metnin anlamını bozma ama daha okunabilir yap."
-        )
+        "label": "🛠️ Düzelt",
+        "prompt": "Transkripti çıkarırken imla ve anlatımı düzelt, akıcı Türkçe ile yeniden yaz."
     }
 }
 
@@ -60,30 +52,29 @@ def split_message(text: str, max_length: int = 4000) -> list[str]:
     return chunks
 
 def get_mode_keyboard(file_id: str):
-    """Kullanıcıya mod seçimi sunan butonları oluşturur."""
-    buttons = [
-        [InlineKeyboardButton(MODES["tldr"]["label"], callback_data=f"mode:tldr:{file_id}")],
-        [InlineKeyboardButton(MODES["transcript"]["label"], callback_data=f"mode:transcript:{file_id}")],
-        [InlineKeyboardButton(MODES["fix"]["label"], callback_data=f"mode:fix:{file_id}")]
-    ]
+    # Telegram 64 byte sınırı var! file_id çok uzunsa bu patlar.
+    # file_id genelde 80+ karakterdir. 
+    # EĞER file_id çok uzunsa, sadece son kısmını değil, tamamını gönderemeyiz.
+    # Çözüm: Callback data limitini aşmamak için file_id'yi sığdırmaya çalışalım.
+    # Eğer sığmıyorsa, mecburen hata verecektir.
+    buttons = []
+    for key, val in MODES.items():
+        data = f"{key}:{file_id}"
+        if len(data.encode()) > 64:
+            logger.error(f"Callback data too long: {data}")
+            # Eğer sığmıyorsa, file_id'yi kırpmak işe yaramaz çünkü dosyayı bulamayız.
+            # Bu durumda alternatif bir yöntem (örn: kısa kod/db) gerekir.
+        buttons.append([InlineKeyboardButton(val["label"], callback_data=data)])
     return InlineKeyboardMarkup(buttons)
 
 async def process_voice(chat_id, file_id, mode="tldr", message_id=None):
-    """Ses dosyasını seçilen moda göre işler."""
     status_msg = None
     try:
         current_label = MODES[mode]["label"]
         if message_id:
-            status_msg = await bot.edit_message_text(
-                chat_id=chat_id, 
-                message_id=message_id, 
-                text=f"🔄 {current_label} modunda işleniyor..."
-            )
+            status_msg = await bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=f"🔄 {current_label} hazırlanıyor...")
         else:
-            status_msg = await bot.send_message(
-                chat_id=chat_id, 
-                text=f"🎙️ Ses alındı, {current_label} hazırlanıyor..."
-            )
+            status_msg = await bot.send_message(chat_id=chat_id, text=f"🎙️ {current_label} hazırlanıyor...")
 
         voice_file = await bot.get_file(file_id)
         file_path = f"/tmp/{file_id}.ogg"
@@ -93,12 +84,6 @@ async def process_voice(chat_id, file_id, mode="tldr", message_id=None):
             with open(file_path, "rb") as audio_file:
                 base64_audio = base64.b64encode(audio_file.read()).decode("utf-8")
 
-            headers = {
-                "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-                "Content-Type": "application/json",
-                "HTTP-Referer": "https://github.com/murqin/tldr-tool",
-            }
-
             payload = {
                 "model": "google/gemini-2.0-flash-001",
                 "messages": [
@@ -106,61 +91,52 @@ async def process_voice(chat_id, file_id, mode="tldr", message_id=None):
                     {
                         "role": "user",
                         "content": [
-                            {"type": "text", "text": "İşlemi başlat."},
+                            {"type": "text", "text": "İşle."},
                             {"type": "input_audio", "input_audio": {"data": base64_audio, "format": "ogg"}}
                         ]
                     }
                 ]
             }
 
-            async with httpx.AsyncClient(timeout=90.0) as client:
+            async with httpx.AsyncClient(timeout=25.0) as client:
                 response = await client.post(
                     "https://openrouter.ai/api/v1/chat/completions",
-                    headers=headers,
+                    headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}", "Content-Type": "application/json"},
                     json=payload
                 )
 
             if response.status_code != 200:
-                raise Exception(f"API Hatası ({response.status_code})")
+                raise Exception(f"API Hatası: {response.status_code}")
 
-            response_json = response.json()
-            response_text = response_json["choices"][0]["message"]["content"]
-
-            messages_to_send = split_message(response_text)
-            
-            # Sonuca mod değiştirme butonlarını ekle (Hızlı geçiş için)
-            keyboard = get_mode_keyboard(file_id)
+            res_text = response.json()["choices"][0]["message"]["content"]
+            chunks = split_message(res_text)
             
             await bot.edit_message_text(
                 chat_id=chat_id, 
                 message_id=status_msg.message_id, 
-                text=messages_to_send[0],
-                reply_markup=keyboard
+                text=chunks[0],
+                reply_markup=get_mode_keyboard(file_id)
             )
 
-            for extra_message in messages_to_send[1:]:
-                await bot.send_message(chat_id=chat_id, text=extra_message)
+            for c in chunks[1:]:
+                await bot.send_message(chat_id=chat_id, text=c)
 
         finally:
-            if os.path.exists(file_path):
-                os.remove(file_path)
+            if os.path.exists(file_path): os.remove(file_path)
 
     except Exception as e:
-        logger.error(f"İşleme Hatası: {e}", exc_info=True)
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🔄 Tekrar Dene", callback_data=f"mode:{mode}:{file_id}")]
-        ])
-        hata_metni = f"❌ Bir sorun oluştu.\n{str(e)[:100]}"
-        
+        logger.error(f"Hata: {e}", exc_info=True)
+        kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔄 Tekrar Dene", callback_data=f"{mode}:{file_id}")]])
+        err_txt = f"❌ Hata: {str(e)[:50]}"
         if status_msg:
-            await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=hata_metni, reply_markup=keyboard)
+            await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=err_txt, reply_markup=kb)
         else:
-            await bot.send_message(chat_id=chat_id, text=hata_metni, reply_markup=keyboard)
+            await bot.send_message(chat_id=chat_id, text=err_txt, reply_markup=kb)
 
 @app.post("/webhook")
 async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: str = Header(None)):
     if not WEBHOOK_SECRET or not secrets.compare_digest(x_telegram_bot_api_secret_token or "", WEBHOOK_SECRET):
-        raise HTTPException(status_code=403, detail="Erişim Engellendi.")
+        return {"status": "forbidden"}
 
     try:
         data = await request.json()
@@ -171,28 +147,22 @@ async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: st
             return {"status": "unauthorized"}
 
         if update.message and update.message.voice:
-            # Ses geldiğinde önce mod seçimi sun
             file_id = update.message.voice.file_id
-            keyboard = get_mode_keyboard(file_id)
             await bot.send_message(
                 chat_id=update.message.chat.id,
-                text="🚀 Ses kaydı alındı! Nasıl işleyelim?",
-                reply_markup=keyboard
+                text="🚀 Ses kaydı alındı! Seçiniz:",
+                reply_markup=get_mode_keyboard(file_id)
             )
 
         elif update.callback_query:
             query = update.callback_query
             await query.answer()
             
-            # data format: "mode:MOD:FILE_ID"
-            parts = query.data.split(":")
-            if parts[0] == "mode":
-                selected_mode = parts[1]
-                file_id = parts[2]
-                await process_voice(query.message.chat.id, file_id, mode=selected_mode, message_id=query.message.message_id)
+            parts = query.data.split(":", 1)
+            if len(parts) == 2 and parts[0] in MODES:
+                await process_voice(query.message.chat.id, parts[1], mode=parts[0], message_id=query.message.message_id)
 
         return {"status": "ok"}
-
     except Exception as e:
-        logger.error(f"Sistem Hatası: {e}", exc_info=True)
+        logger.error(f"Webhook Hatası: {e}")
         return {"status": "error"}
