@@ -23,6 +23,30 @@ if not all([TELEGRAM_TOKEN, OPENROUTER_API_KEY, WEBHOOK_SECRET, ALLOWED_USER_ID]
 app = FastAPI()
 bot = Bot(token=TELEGRAM_TOKEN)
 
+# Mod tanımları
+MODES = {
+    "tldr": {
+        "label": "📝 TL;DR (Özet)",
+        "prompt": (
+            "Sen bir asistan gibi değil, kullanıcının bizzat kendisi gibi konuşmalısın. "
+            "Ses kaydındaki düşünceleri, sanki sen (kullanıcı) arkadaşlarına anlatıyormuşsun gibi 'ben' diliyle (1. tekil şahıs) özetle. "
+            "Giriş cümleleri veya sonuç cümleleri ASLA kullanma. Doğrudan konuya gir. "
+            "Samimi, aşırı rahat, 'agalar' jargonuna sahip bir dil kullan. Maksimum 2-3 kısa madde kullan. Çıktı Türkçe olmalı."
+        )
+    },
+    "transcript": {
+        "label": "✍️ Transkript",
+        "prompt": "Ses kaydını kelimesi kelimesine Türkçe transkript haline getir. Hiçbir yorum veya ekleme yapma. Sadece konuşulanları yaz."
+    },
+    "fix": {
+        "label": "🛠️ Düzeltilmiş Metin",
+        "prompt": (
+            "Bu ses kaydının transkriptini çıkarırken imla hatalarını düzelt, anlatım bozukluklarını gider ve "
+            "daha profesyonel/akıcı bir Türkçe ile yeniden kurgula. Metnin anlamını bozma ama daha okunabilir yap."
+        )
+    }
+}
+
 def split_message(text: str, max_length: int = 4000) -> list[str]:
     if not text: return []
     chunks = []
@@ -35,14 +59,31 @@ def split_message(text: str, max_length: int = 4000) -> list[str]:
     if text: chunks.append(text)
     return chunks
 
-async def process_voice(chat_id, file_id, message_id=None):
-    """Ses dosyasını indirir, özetler ve mesajı günceller."""
+def get_mode_keyboard(file_id: str):
+    """Kullanıcıya mod seçimi sunan butonları oluşturur."""
+    buttons = [
+        [InlineKeyboardButton(MODES["tldr"]["label"], callback_data=f"mode:tldr:{file_id}")],
+        [InlineKeyboardButton(MODES["transcript"]["label"], callback_data=f"mode:transcript:{file_id}")],
+        [InlineKeyboardButton(MODES["fix"]["label"], callback_data=f"mode:fix:{file_id}")]
+    ]
+    return InlineKeyboardMarkup(buttons)
+
+async def process_voice(chat_id, file_id, mode="tldr", message_id=None):
+    """Ses dosyasını seçilen moda göre işler."""
     status_msg = None
     try:
+        current_label = MODES[mode]["label"]
         if message_id:
-            status_msg = await bot.edit_message_text(chat_id=chat_id, message_id=message_id, text="🔄 Yeniden deneniyor, işleniyor...")
+            status_msg = await bot.edit_message_text(
+                chat_id=chat_id, 
+                message_id=message_id, 
+                text=f"🔄 {current_label} modunda işleniyor..."
+            )
         else:
-            status_msg = await bot.send_message(chat_id=chat_id, text="🎙️ Ses kaydı alındı, işleniyor...")
+            status_msg = await bot.send_message(
+                chat_id=chat_id, 
+                text=f"🎙️ Ses alındı, {current_label} hazırlanıyor..."
+            )
 
         voice_file = await bot.get_file(file_id)
         file_path = f"/tmp/{file_id}.ogg"
@@ -61,30 +102,18 @@ async def process_voice(chat_id, file_id, message_id=None):
             payload = {
                 "model": "google/gemini-2.0-flash-001",
                 "messages": [
-                    {
-                        "role": "system",
-                        "content": (
-                            "Sen bir asistan gibi değil, kullanıcının bizzat kendisi gibi konuşmalısın. "
-                            "Ses kaydındaki düşünceleri, sanki sen (kullanıcı) arkadaşlarına anlatıyormuşsun gibi 'ben' diliyle (1. tekil şahıs) özetle. "
-                            "Giriş cümleleri veya sonuç cümleleri ASLA kullanma. "
-                            "Doğrudan konuya gir. Samimi, aşırı rahat, 'agalar' jargonuna sahip bir dil kullan. "
-                            "Maksimum 2-3 kısa madde (bullet point) kullan. Çıktı tamamen Türkçe olmalı."
-                        )
-                    },
+                    {"role": "system", "content": MODES[mode]["prompt"]},
                     {
                         "role": "user",
                         "content": [
-                            {"type": "text", "text": "Bu ses kaydını arkadaşlarına anlatıyormuşsun gibi, ben diliyle ve giriş/sonuç cümlesi eklemeden Türkçe özetle."},
-                            {
-                                "type": "input_audio",
-                                "input_audio": {"data": base64_audio, "format": "ogg"}
-                            }
+                            {"type": "text", "text": "İşlemi başlat."},
+                            {"type": "input_audio", "input_audio": {"data": base64_audio, "format": "ogg"}}
                         ]
                     }
                 ]
             }
 
-            async with httpx.AsyncClient(timeout=60.0) as client:
+            async with httpx.AsyncClient(timeout=90.0) as client:
                 response = await client.post(
                     "https://openrouter.ai/api/v1/chat/completions",
                     headers=headers,
@@ -98,7 +127,16 @@ async def process_voice(chat_id, file_id, message_id=None):
             response_text = response_json["choices"][0]["message"]["content"]
 
             messages_to_send = split_message(response_text)
-            await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=messages_to_send[0])
+            
+            # Sonuca mod değiştirme butonlarını ekle (Hızlı geçiş için)
+            keyboard = get_mode_keyboard(file_id)
+            
+            await bot.edit_message_text(
+                chat_id=chat_id, 
+                message_id=status_msg.message_id, 
+                text=messages_to_send[0],
+                reply_markup=keyboard
+            )
 
             for extra_message in messages_to_send[1:]:
                 await bot.send_message(chat_id=chat_id, text=extra_message)
@@ -110,7 +148,7 @@ async def process_voice(chat_id, file_id, message_id=None):
     except Exception as e:
         logger.error(f"İşleme Hatası: {e}", exc_info=True)
         keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🔄 Tekrar Dene", callback_data=f"retry:{file_id}")]
+            [InlineKeyboardButton("🔄 Tekrar Dene", callback_data=f"mode:{mode}:{file_id}")]
         ])
         hata_metni = f"❌ Bir sorun oluştu.\n{str(e)[:100]}"
         
@@ -125,10 +163,6 @@ async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: st
         raise HTTPException(status_code=403, detail="Erişim Engellendi.")
 
     try:
-        body = await request.body()
-        if len(body) > 1024 * 1024:
-            raise HTTPException(status_code=413, detail="İstek çok büyük.")
-            
         data = await request.json()
         update = Update.de_json(data, bot)
         user = update.effective_user
@@ -137,15 +171,25 @@ async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: st
             return {"status": "unauthorized"}
 
         if update.message and update.message.voice:
-            await process_voice(update.message.chat.id, update.message.voice.file_id)
+            # Ses geldiğinde önce mod seçimi sun
+            file_id = update.message.voice.file_id
+            keyboard = get_mode_keyboard(file_id)
+            await bot.send_message(
+                chat_id=update.message.chat.id,
+                text="🚀 Ses kaydı alındı! Nasıl işleyelim?",
+                reply_markup=keyboard
+            )
 
         elif update.callback_query:
             query = update.callback_query
             await query.answer()
             
-            if query.data.startswith("retry:"):
-                file_id = query.data.split(":")[1]
-                await process_voice(query.message.chat.id, file_id, message_id=query.message.message_id)
+            # data format: "mode:MOD:FILE_ID"
+            parts = query.data.split(":")
+            if parts[0] == "mode":
+                selected_mode = parts[1]
+                file_id = parts[2]
+                await process_voice(query.message.chat.id, file_id, mode=selected_mode, message_id=query.message.message_id)
 
         return {"status": "ok"}
 
