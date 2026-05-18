@@ -7,6 +7,7 @@ import asyncio
 import urllib.parse
 from fastapi import FastAPI, Request, Header, HTTPException
 from telegram import Update, Bot, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.constants import ParseMode
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -52,24 +53,13 @@ def split_message(text: str, max_length: int = 4000) -> list[str]:
     if text: chunks.append(text)
     return chunks
 
-def get_mode_keyboard(file_id: str, current_text: str = None):
-    """Mod seçimi ve Paylaş butonlarını oluşturur."""
-    buttons = []
-    # Üst sıra: Modlar
-    buttons.append([
-        InlineKeyboardButton(MODES["tldr"]["label"], callback_data=f"tldr"),
-        InlineKeyboardButton(MODES["trans"]["label"], callback_data=f"trans"),
-        InlineKeyboardButton(MODES["fix"]["label"], callback_data=f"fix")
-    ])
-    
-    # Alt sıra: Paylaş butonu (Eğer metin varsa)
-    if current_text:
-        # Telegram içi paylaşım linki (En stabil yöntem)
-        # Bu linke tıklandığında Telegram bir kişi seçmeni ister ve metni oraya yapıştırır.
-        # Instagram'a doğrudan metin pushlamak teknik olarak kısıtlı olduğundan en hızlı yol budur.
-        share_url = f"https://t.me/share/url?url=&text={urllib.parse.quote(current_text)}"
-        buttons.append([InlineKeyboardButton("📲 Paylaş (Telegram/Diğer)", url=share_url)])
-        
+def get_mode_keyboard():
+    """Mod seçimi butonlarını oluşturur."""
+    buttons = [[
+        InlineKeyboardButton(MODES["tldr"]["label"], callback_data="tldr"),
+        InlineKeyboardButton(MODES["trans"]["label"], callback_data="trans"),
+        InlineKeyboardButton(MODES["fix"]["label"], callback_data="fix")
+    ]]
     return InlineKeyboardMarkup(buttons)
 
 async def process_voice(chat_id, file_id, mode="tldr", message_id=None):
@@ -116,15 +106,23 @@ async def process_voice(chat_id, file_id, mode="tldr", message_id=None):
             res_text = response.json()["choices"][0]["message"]["content"]
             chunks = split_message(res_text)
             
+            # Telegram'da üzerine tıklandığında kopyalanması için <code> tagı içine alıyoruz
+            copyable_text = f"<code>{chunks[0]}</code>"
+            
             await bot.edit_message_text(
                 chat_id=chat_id, 
                 message_id=status_msg.message_id, 
-                text=chunks[0],
-                reply_markup=get_mode_keyboard(file_id, current_text=chunks[0])
+                text=copyable_text,
+                parse_mode=ParseMode.HTML,
+                reply_markup=get_mode_keyboard()
             )
 
             for c in chunks[1:]:
-                await bot.send_message(chat_id=chat_id, text=c)
+                await bot.send_message(
+                    chat_id=chat_id, 
+                    text=f"<code>{c}</code>", 
+                    parse_mode=ParseMode.HTML
+                )
 
         finally:
             if os.path.exists(file_path): os.remove(file_path)
@@ -156,7 +154,7 @@ async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: st
                 chat_id=update.message.chat.id,
                 text="🚀 Ses kaydı alındı! Seçiniz:",
                 reply_to_message_id=update.message.message_id,
-                reply_markup=get_mode_keyboard(update.message.voice.file_id)
+                reply_markup=get_mode_keyboard()
             )
 
         elif update.callback_query:
