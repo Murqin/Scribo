@@ -51,20 +51,9 @@ def split_message(text: str, max_length: int = 4000) -> list[str]:
     if text: chunks.append(text)
     return chunks
 
-def get_mode_keyboard(file_id: str):
-    # Telegram 64 byte sınırı var! file_id çok uzunsa bu patlar.
-    # file_id genelde 80+ karakterdir. 
-    # EĞER file_id çok uzunsa, sadece son kısmını değil, tamamını gönderemeyiz.
-    # Çözüm: Callback data limitini aşmamak için file_id'yi sığdırmaya çalışalım.
-    # Eğer sığmıyorsa, mecburen hata verecektir.
-    buttons = []
-    for key, val in MODES.items():
-        data = f"{key}:{file_id}"
-        if len(data.encode()) > 64:
-            logger.error(f"Callback data too long: {data}")
-            # Eğer sığmıyorsa, file_id'yi kırpmak işe yaramaz çünkü dosyayı bulamayız.
-            # Bu durumda alternatif bir yöntem (örn: kısa kod/db) gerekir.
-        buttons.append([InlineKeyboardButton(val["label"], callback_data=data)])
+def get_mode_keyboard():
+    """Kullanıcıya mod seçimi sunar. file_id artık callback_data'da DEĞİL."""
+    buttons = [[InlineKeyboardButton(v["label"], callback_data=k)] for k, v in MODES.items()]
     return InlineKeyboardMarkup(buttons)
 
 async def process_voice(chat_id, file_id, mode="tldr", message_id=None):
@@ -115,7 +104,7 @@ async def process_voice(chat_id, file_id, mode="tldr", message_id=None):
                 chat_id=chat_id, 
                 message_id=status_msg.message_id, 
                 text=chunks[0],
-                reply_markup=get_mode_keyboard(file_id)
+                reply_markup=get_mode_keyboard()
             )
 
             for c in chunks[1:]:
@@ -126,7 +115,7 @@ async def process_voice(chat_id, file_id, mode="tldr", message_id=None):
 
     except Exception as e:
         logger.error(f"Hata: {e}", exc_info=True)
-        kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔄 Tekrar Dene", callback_data=f"{mode}:{file_id}")]])
+        kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔄 Tekrar Dene", callback_data=mode)]])
         err_txt = f"❌ Hata: {str(e)[:50]}"
         if status_msg:
             await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=err_txt, reply_markup=kb)
@@ -146,23 +135,41 @@ async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: st
         if not user or str(user.id) != ALLOWED_USER_ID:
             return {"status": "unauthorized"}
 
+        # 1. Ses Mesajı Geldiğinde
         if update.message and update.message.voice:
-            file_id = update.message.voice.file_id
+            # Ses mesajına CEVAP (reply) olarak menüyü gönderiyoruz.
+            # Böylece ileride file_id'yi reply_to_message üzerinden bulabileceğiz.
             await bot.send_message(
                 chat_id=update.message.chat.id,
                 text="🚀 Ses kaydı alındı! Seçiniz:",
-                reply_markup=get_mode_keyboard(file_id)
+                reply_to_message_id=update.message.message_id,
+                reply_markup=get_mode_keyboard()
             )
 
+        # 2. Butonlara Basıldığında
         elif update.callback_query:
             query = update.callback_query
             await query.answer()
             
-            parts = query.data.split(":", 1)
-            if len(parts) == 2 and parts[0] in MODES:
-                await process_voice(query.message.chat.id, parts[1], mode=parts[0], message_id=query.message.message_id)
+            # Callback data sadece modu (tldr, trans, fix) içeriyor.
+            mode = query.data
+            
+            # file_id'yi bulmak için:
+            # Butonun olduğu mesaj (query.message) ses mesajına (reply_to_message) yanıt olmalı.
+            voice_msg = query.message.reply_to_message
+            
+            if voice_msg and voice_msg.voice:
+                file_id = voice_msg.voice.file_id
+                await process_voice(query.message.chat.id, file_id, mode=mode, message_id=query.message.message_id)
+            else:
+                # Eğer reply_to_message kaybolduysa (nadir) hata ver
+                await bot.edit_message_text(
+                    chat_id=query.message.chat.id,
+                    message_id=query.message.message_id,
+                    text="❌ Kaynak ses dosyası bulunamadı. Lütfen sesi tekrar gönderin."
+                )
 
         return {"status": "ok"}
     except Exception as e:
-        logger.error(f"Webhook Hatası: {e}")
+        logger.error(f"Webhook Hatası: {e}", exc_info=True)
         return {"status": "error"}
