@@ -4,6 +4,7 @@ import base64
 import httpx
 import secrets
 import asyncio
+import urllib.parse
 from fastapi import FastAPI, Request, Header, HTTPException
 from telegram import Update, Bot, InlineKeyboardButton, InlineKeyboardMarkup
 from dotenv import load_dotenv
@@ -51,9 +52,24 @@ def split_message(text: str, max_length: int = 4000) -> list[str]:
     if text: chunks.append(text)
     return chunks
 
-def get_mode_keyboard():
-    """Kullanıcıya mod seçimi sunar. file_id artık callback_data'da DEĞİL."""
-    buttons = [[InlineKeyboardButton(v["label"], callback_data=k)] for k, v in MODES.items()]
+def get_mode_keyboard(file_id: str, current_text: str = None):
+    """Mod seçimi ve Paylaş butonlarını oluşturur."""
+    buttons = []
+    # Üst sıra: Modlar
+    buttons.append([
+        InlineKeyboardButton(MODES["tldr"]["label"], callback_data=f"tldr"),
+        InlineKeyboardButton(MODES["trans"]["label"], callback_data=f"trans"),
+        InlineKeyboardButton(MODES["fix"]["label"], callback_data=f"fix")
+    ])
+    
+    # Alt sıra: Paylaş butonu (Eğer metin varsa)
+    if current_text:
+        # Telegram içi paylaşım linki (En stabil yöntem)
+        # Bu linke tıklandığında Telegram bir kişi seçmeni ister ve metni oraya yapıştırır.
+        # Instagram'a doğrudan metin pushlamak teknik olarak kısıtlı olduğundan en hızlı yol budur.
+        share_url = f"https://t.me/share/url?url=&text={urllib.parse.quote(current_text)}"
+        buttons.append([InlineKeyboardButton("📲 Paylaş (Telegram/Diğer)", url=share_url)])
+        
     return InlineKeyboardMarkup(buttons)
 
 async def process_voice(chat_id, file_id, mode="tldr", message_id=None):
@@ -104,7 +120,7 @@ async def process_voice(chat_id, file_id, mode="tldr", message_id=None):
                 chat_id=chat_id, 
                 message_id=status_msg.message_id, 
                 text=chunks[0],
-                reply_markup=get_mode_keyboard()
+                reply_markup=get_mode_keyboard(file_id, current_text=chunks[0])
             )
 
             for c in chunks[1:]:
@@ -135,38 +151,28 @@ async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: st
         if not user or str(user.id) != ALLOWED_USER_ID:
             return {"status": "unauthorized"}
 
-        # 1. Ses Mesajı Geldiğinde
         if update.message and update.message.voice:
-            # Ses mesajına CEVAP (reply) olarak menüyü gönderiyoruz.
-            # Böylece ileride file_id'yi reply_to_message üzerinden bulabileceğiz.
             await bot.send_message(
                 chat_id=update.message.chat.id,
                 text="🚀 Ses kaydı alındı! Seçiniz:",
                 reply_to_message_id=update.message.message_id,
-                reply_markup=get_mode_keyboard()
+                reply_markup=get_mode_keyboard(update.message.voice.file_id)
             )
 
-        # 2. Butonlara Basıldığında
         elif update.callback_query:
             query = update.callback_query
             await query.answer()
             
-            # Callback data sadece modu (tldr, trans, fix) içeriyor.
             mode = query.data
-            
-            # file_id'yi bulmak için:
-            # Butonun olduğu mesaj (query.message) ses mesajına (reply_to_message) yanıt olmalı.
             voice_msg = query.message.reply_to_message
             
             if voice_msg and voice_msg.voice:
-                file_id = voice_msg.voice.file_id
-                await process_voice(query.message.chat.id, file_id, mode=mode, message_id=query.message.message_id)
+                await process_voice(query.message.chat.id, voice_msg.voice.file_id, mode=mode, message_id=query.message.message_id)
             else:
-                # Eğer reply_to_message kaybolduysa (nadir) hata ver
                 await bot.edit_message_text(
                     chat_id=query.message.chat.id,
                     message_id=query.message.message_id,
-                    text="❌ Kaynak ses dosyası bulunamadı. Lütfen sesi tekrar gönderin."
+                    text="❌ Kaynak ses dosyası bulunamadı."
                 )
 
         return {"status": "ok"}
