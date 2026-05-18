@@ -85,16 +85,18 @@ async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: st
                         {
                             "role": "system",
                             "content": (
-                                "You are a minimalist software engineer assistant. Analyze the provided audio content. "
-                                "Create a concise, direct TL;DR summary consisting of 2-3 bullet points. "
-                                "Use a friendly, casual tone ('agalar' jargon). "
-                                "Output MUST be in Turkish."
+                                "Sen bir asistan gibi değil, kullanıcının bizzat kendisi gibi konuşmalısın. "
+                                "Ses kaydındaki düşünceleri, sanki sen (kullanıcı) arkadaşlarına anlatıyormuşsun gibi 'ben' diliyle (1. tekil şahıs) özetle. "
+                                "Giriş cümleleri (Örneğin: 'İşte özet:', 'Şunları dedim:') veya sonuç cümleleri ASLA kullanma. "
+                                "Doğrudan konuya gir. Samimi, aşırı rahat, 'agalar' jargonuna sahip bir dil kullan. "
+                                "Maksimum 2-3 kısa madde (bullet point) kullan. "
+                                "Çıktı tamamen Türkçe olmalı ve Instagram DM'de paylaşılmaya hazır, samimi bir not gibi durmalı."
                             )
                         },
                         {
                             "role": "user",
                             "content": [
-                                {"type": "text", "text": "Summarize this audio in Turkish."},
+                                {"type": "text", "text": "Bu ses kaydını sanki arkadaşlarına anlatıyormuşsun gibi, ben diliyle ve giriş/sonuç cümlesi eklemeden Türkçe özetle."},
                                 {
                                     "type": "input_audio",
                                     "input_audio": {
