@@ -1,11 +1,15 @@
 # Telegram Voice TL;DR Bot (tldr-bot) 🎙️
 
-> **A serverless, FastAPI-powered Telegram bot running on Vercel that intercepts voice messages, transcribes or summarizes them using Gemini 2.0 Flash (via OpenRouter audio modality), and audits execution costs in real-time.**
+<p align="center">
+  <img src="assets/mascot.jpg" alt="TL;DR Bot Mascot" width="200" style="border-radius: 50%;"/>
+</p>
+
+> **A serverless, FastAPI-powered Telegram bot running on Vercel that intercepts voice messages, transcribes or summarizes them using Gemini 3.5 Flash (via OpenRouter audio modality), and audits execution costs in real-time.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](LICENSE)
 [![Tech: FastAPI](https://img.shields.io/badge/FastAPI-v0.100%2B-009688?style=flat-square&logo=fastapi&logoColor=white)](#)
 [![Tech: Python](https://img.shields.io/badge/Python-3.10%2B-blue?style=flat-square&logo=python&logoColor=white)](#)
-[![Model: Gemini 2.0 Flash](https://img.shields.io/badge/Model-Gemini%202.0%20Flash-red?style=flat-square&logo=google&logoColor=white)](#)
+[![Model: Gemini 3.5 Flash](https://img.shields.io/badge/Model-Gemini%203.5%20Flash-red?style=flat-square&logo=google&logoColor=white)](#)
 [![Infrastructure: Vercel](https://img.shields.io/badge/Infrastructure-Vercel%20Serverless-black?style=flat-square&logo=vercel&logoColor=white)](#)
 
 ---
@@ -13,14 +17,13 @@
 ## ✨ Features
 
 - **⚡ Serverless FastAPI Webhook:** Built for serverless deployment on Vercel (`api/index.py`), executing instantly with zero persistent container overhead.
-- **🎙️ Direct Audio Modality:** Bypasses conventional, slow speech-to-text converters. Encodes raw `.ogg` voice buffers to base64 and streams them directly to Gemini 2.0 Flash's native audio-sensing model.
+- **🎙️ Direct Audio Modality:** Bypasses conventional, slow speech-to-text converters. Encodes raw `.ogg` voice buffers to base64 and streams them directly to Gemini 3.5 Flash's native audio-sensing model.
 - **🏷️ Smart Interactive Modes:** Features inline button selectors situated directly inside Telegram chats:
-  - **📝 Özet (TL;DR):** Generates a concise, 1st-person Turkish summary written in a casual, friendly jargon ("agalar" slang) with 2-3 precise bullet points.
-  - **✍️ Transkript:** Resolves a precise, word-for-word literal translation of the spoken recording.
+  - **📝 Özet (TL;DR):** Generates a concise, 1st-person Turkish summary without intro/outro text, keeping the context clean.
+  - **✍️ Transkript:** Resolves a precise, word-for-word literal translation/transcription of the spoken recording.
   - **🛠️ Düzelt:** Transcribes the audio while correcting syntax, spelling errors, and outputting a highly fluent, reading-friendly block.
-- **📊 Real-time Cost Auditing:** Queries OpenRouter's live API model pricing endpoint on-the-fly. Calculates exact input/output token usage costs and displays a detailed balance summary (e.g., `Maliyet: $0.00004`) after every request.
-- **🔒 Webhook Authentication:** Features robust security checking, validating secret tokens against headers (`X-Telegram-Bot-Api-Secret-Token`) to reject unauthorized webhook invocations.
-- **👤 User Whitelisting:** Enforces a rigid system-level environment whitelist (`ALLOWED_USER_ID`) to restrict bot execution strictly to the owner.
+  - **📓 Obsidian Notu:** Creates a copy-paste ready structured Obsidian note (title, tags, summary, bullet points, task checklist).
+  - **📅 Takvim Raporu:** Detects events, meetings, and dates to automatically generate a direct Google Calendar add link button.
 
 ---
 
