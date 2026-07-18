@@ -8,6 +8,7 @@ import asyncio
 import urllib.parse
 from datetime import datetime
 from fastapi import FastAPI, Request, Header, HTTPException
+from fastapi.responses import HTMLResponse
 from telegram import Update, Bot, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
 from dotenv import load_dotenv
@@ -129,8 +130,14 @@ def split_message(text: str, max_length: int = 4000) -> list[str]:
     if text: chunks.append(text)
     return chunks
 
-def get_mode_keyboard():
-    buttons = [
+def get_mode_keyboard(calendar_url=None, obsidian_url=None):
+    buttons = []
+    if obsidian_url:
+        buttons.append([InlineKeyboardButton("📓 Obsidian'a Aktar", url=obsidian_url)])
+    if calendar_url:
+        buttons.append([InlineKeyboardButton("📅 Google Takvime Ekle", url=calendar_url)])
+        
+    buttons.extend([
         [
             InlineKeyboardButton(MODES["tldr"]["label"], callback_data="tldr"),
             InlineKeyboardButton(MODES["trans"]["label"], callback_data="trans")
@@ -142,10 +149,10 @@ def get_mode_keyboard():
         [
             InlineKeyboardButton(MODES["task"]["label"], callback_data="task")
         ]
-    ]
+    ])
     return InlineKeyboardMarkup(buttons)
 
-async def process_voice(chat_id, file_id, mode="tldr", message_id=None):
+async def process_voice(chat_id, file_id, mode="tldr", message_id=None, base_url=None):
     status_msg = None
     try:
         current_label = MODES[mode]["label"]
@@ -229,15 +236,33 @@ async def process_voice(chat_id, file_id, mode="tldr", message_id=None):
                     }
                     calendar_url = f"https://calendar.google.com/calendar/render?{urllib.parse.urlencode(params)}"
 
+            # Parse Obsidian URL if in note mode
+            obsidian_url = None
+            if mode == "note" and base_url:
+                note_title = "Ses Notu"
+                lines = clean_text.split("\n")
+                for line in lines:
+                    if line.startswith("# "):
+                        note_title = line.replace("# ", "").strip()
+                        break
+                
+                safe_content = clean_text
+                if len(safe_content) > 1500:
+                    safe_content = safe_content[:1500] + "\n\n...(Kırpıldı)"
+                
+                params = {
+                    "name": note_title,
+                    "content": safe_content
+                }
+                obsidian_url = f"{base_url}obsidian?{urllib.parse.urlencode(params)}"
+
             chunks = split_message(clean_text)
             if not chunks:
                 chunks = ["İşlem tamamlandı, detaylı görev veya takvim kaydı oluşturuldu."]
             
             copyable_text = f"<code>{html.escape(chunks[0])}</code>"
             
-            keyboard = get_mode_keyboard()
-            if calendar_url:
-                keyboard.inline_keyboard.insert(0, [InlineKeyboardButton("📅 Google Takvime Ekle", url=calendar_url)])
+            keyboard = get_mode_keyboard(calendar_url=calendar_url, obsidian_url=obsidian_url)
 
             await bot.edit_message_text(
                 chat_id=chat_id, 
@@ -268,6 +293,77 @@ async def process_voice(chat_id, file_id, mode="tldr", message_id=None):
             await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=err_txt, reply_markup=kb)
         else:
             await bot.send_message(chat_id=chat_id, text=err_txt, reply_markup=kb)
+
+@app.get("/obsidian", response_class=HTMLResponse)
+async def open_obsidian(name: str = "", content: str = ""):
+    # URL'den gelen verileri javascript ile obsidian://new formatına yönlendiriyoruz
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Obsidian'a Aktarılıyor...</title>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <style>
+            body {{
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                height: 100vh;
+                margin: 0;
+                background-color: #1e1e1e;
+                color: #ffffff;
+                text-align: center;
+                padding: 20px;
+            }}
+            .loader {{
+                border: 4px solid #333;
+                border-top: 4px solid #8b5cf6;
+                border-radius: 50%;
+                width: 40px;
+                height: 40px;
+                animation: spin 1s linear infinite;
+                margin-bottom: 20px;
+            }}
+            @keyframes spin {{
+                0% {{ transform: rotate(0deg); }}
+                100% {{ transform: rotate(360deg); }}
+            }}
+            .btn {{
+                background-color: #8b5cf6;
+                color: white;
+                border: none;
+                padding: 10px 20px;
+                border-radius: 5px;
+                cursor: pointer;
+                font-weight: bold;
+                text-decoration: none;
+                margin-top: 20px;
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="loader"></div>
+        <h2>Obsidian Açılıyor...</h2>
+        <p>Notunuz aktarılıyor. Eğer uygulama açılmazsa aşağıdaki butona tıklayabilirsiniz:</p>
+        <a id="obsidian-link" class="btn" href="#">Obsidian'ı Aç</a>
+
+        <script>
+            const name = {repr(name)};
+            const content = {repr(content)};
+            const uri = "obsidian://new?name=" + encodeURIComponent(name) + "&content=" + encodeURIComponent(content);
+            
+            document.getElementById("obsidian-link").href = uri;
+            
+            // Otomatik yönlendir
+            window.location.href = uri;
+        </script>
+    </body>
+    </html>
+    """
+    return HTMLResponse(content=html_content)
 
 @app.post("/webhook")
 async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: str = Header(None)):
@@ -304,7 +400,8 @@ async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: st
             voice_msg = query.message.reply_to_message
             
             if voice_msg and voice_msg.voice:
-                await process_voice(query.message.chat.id, voice_msg.voice.file_id, mode=mode, message_id=query.message.message_id)
+                base_url = str(request.base_url)
+                await process_voice(query.message.chat.id, voice_msg.voice.file_id, mode=mode, message_id=query.message.message_id, base_url=base_url)
             else:
                 await bot.edit_message_text(
                     chat_id=query.message.chat.id,
