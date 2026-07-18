@@ -1,10 +1,12 @@
 import os
 import logging
 import base64
+import html
 import httpx
 import secrets
 import asyncio
 import urllib.parse
+from datetime import datetime
 from fastapi import FastAPI, Request, Header, HTTPException
 from telegram import Update, Bot, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
@@ -20,28 +22,71 @@ OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
 WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET")
 ALLOWED_USER_ID = os.environ.get("ALLOWED_USER_ID")
 
-app = FastAPI()
+app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 bot = Bot(token=TELEGRAM_TOKEN)
 
 # Sabitler
-TARGET_MODEL = "google/gemini-2.0-flash-001"
+TARGET_MODEL = "google/gemini-3.5-flash"
 MODEL_PRICES_CACHE = {}
 
 MODES = {
     "tldr": {
         "label": "📝 Özet",
         "prompt": (
-            "Kullanıcının kendisi gibi, 1. tekil şahısla, samimi/agalar jargonunda, "
-            "giriş/sonuç cümlesiz, 2-3 maddeyle Türkçe özetle."
+            "Sen profesyonel bir ses analiz asistanısın. İletilen Türkçe ses kaydını şu kurallara göre özetle:\n"
+            "1. Kesinlikle giriş, açıklama veya sonuç cümlesi yazma (Örn: \"İşte özet:\", \"Bu kayıtta...\" deme).\n"
+            "2. Doğrudan 2 veya 3 maddelik (bullet points) bir markdown listesi döndür.\n"
+            "3. Bağlamı koparmadan, ana fikri ve önemli noktaları eksiksiz ama sade bir Türkçe ile aktar.\n"
+            "4. Konuşanın ağzından (1. tekil şahıs) yaz."
         )
     },
     "trans": {
         "label": "✍️ Transkript",
-        "prompt": "Ses kaydını kelimesi kelimesine Türkçe transkript yap. Yorum ekleme."
+        "prompt": (
+            "Sen hassas bir ses deşifre (transkripsiyon) sistemisin. İletilen Türkçe ses kaydını şu kurallara göre yazıya dök:\n"
+            "1. Konuşulan her şeyi kelimesi kelimesine, hiçbir kelimeyi atlamadan aktar.\n"
+            "2. Metne hiçbir yorum, düzeltme, açıklama veya ön söz/son söz ekleme.\n"
+            "3. Konuşma esnasındaki duraksamaları veya dolgu kelimelerini (ee, şey, yani vb.) olduğu gibi koru.\n"
+            "4. Eğer ses kaydı tamamen sessizse veya hiçbir anlaşılır kelime içermiyorsa, sadece boş bir metin veya \"[Anlaşılamayan Ses]\" yaz."
+        )
     },
     "fix": {
         "label": "🛠️ Düzelt",
-        "prompt": "Transkripti çıkarırken imla ve anlatımı düzelt, akıcı Türkçe ile yeniden yaz."
+        "prompt": (
+            "Sen uzman bir editör ve dil düzeltme sistemisin. İletilen Türkçe ses kaydını şu kurallara göre düzenle:\n"
+            "1. Ses kaydındaki konuşmayı kelimesi kelimesine yazmak yerine; dil bilgisi hatalarını, anlatım bozukluklarını ve devrik cümleleri düzelt.\n"
+            "2. Konuşmadaki gereksiz duraksamaları ve dolgu kelimelerini (ee, şey, yani vb.) tamamen temizle.\n"
+            "3. Metni akıcı, profesyonel, okunması kolay ve anlam bütünlüğü korunmuş bir paragraf (veya gerekirse paragraflar) halinde yeniden yaz.\n"
+            "4. Kesinlikle dışarıdan bir açıklama veya giriş/çıkış cümlesi ekleme."
+        )
+    },
+    "note": {
+        "label": "📓 Obsidian Notu",
+        "prompt": (
+            "Sen gelişmiş bir Obsidian not tutma asistanısın. İletilen Türkçe ses kaydını Obsidian markdown formatında yapılandırılmış bir nota dönüştür:\n"
+            "1. Başlık olarak en üste konuyu özetleyen kısa bir `# Başlık` ekle.\n"
+            "2. Notun altına konuya uygun `#etiketler` ekle (Örn: #proje #fikir #hatırlatıcı vb.).\n"
+            "3. Ana fikri ve bağlamı koruyarak 1-2 cümlelik kısa bir açıklamayla özetle.\n"
+            "4. Önemli detayları ve bilgileri yapılandırılmış maddeler halinde listele.\n"
+            "5. Eğer ses kaydında yapılacak işler, görevler veya eylemler geçiyorsa bunları Obsidian yapılacaklar listesi (`- [ ] Görev`) formatında en alta ekle.\n"
+            "6. Giriş/açıklama veya \"İşte notunuz:\" gibi ön ekler ekleme, doğrudan Obsidian markdown kodunu üret."
+        )
+    },
+    "task": {
+        "label": "📅 Takvim Raporu",
+        "prompt": (
+            "Sen bir asistan ve zaman yönetimi uzmanısın. İletilen Türkçe ses kaydındaki buluşma, toplantı, görev veya randevu bilgilerini analiz et:\n"
+            "1. Ses kaydında geçen tüm görevleri ve yapılacak işleri listele.\n"
+            "2. Eğer bir buluşma, toplantı veya tarihli etkinlik varsa, bu etkinliğin detaylarını (Başlık, Tarih, Saat, Açıklama) çıkar.\n"
+            "3. Çıktının en sonuna, araya '===CALENDAR===' koyarak kesinlikle şu formatta bilgileri ekle (eğer etkinlik yoksa bu kısmı ekleme veya boş bırak):\n"
+            "===CALENDAR===\n"
+            "TITLE: [Etkinlik Başlığı]\n"
+            "START: [YYYYMMDDTHHMMSSZ formatında UTC başlangıç tarihi/saati ya da YYYYMMDD formatında gün]\n"
+            "END: [YYYYMMDDTHHMMSSZ formatında UTC bitiş tarihi/saati ya da YYYYMMDD formatında gün, yoksa başlangıçtan 1 saat sonrası]\n"
+            "DETAILS: [Açıklama detayı]\n"
+            "4. Bu yapılandırılmış bilginin üstüne (===CALENDAR=== satırının üstüne), kullanıcının okuyabilmesi için normal Türkçe görev özetini yaz.\n"
+            "5. Giriş/açıklama veya \"İşte takvim raporu:\" gibi ön ekler ekleme."
+        )
     }
 }
 
@@ -70,7 +115,7 @@ async def get_dynamic_pricing(model_id: str):
         logger.error(f"Fiyat çekme hatası: {e}")
     
     # Fallback (API patlarsa varsayılan değerler)
-    return {"prompt": 0.0000001, "completion": 0.0000004}
+    return {"prompt": 0.0000015, "completion": 0.000009}
 
 def split_message(text: str, max_length: int = 4000) -> list[str]:
     if not text: return []
@@ -85,11 +130,19 @@ def split_message(text: str, max_length: int = 4000) -> list[str]:
     return chunks
 
 def get_mode_keyboard():
-    buttons = [[
-        InlineKeyboardButton(MODES["tldr"]["label"], callback_data="tldr"),
-        InlineKeyboardButton(MODES["trans"]["label"], callback_data="trans"),
-        InlineKeyboardButton(MODES["fix"]["label"], callback_data="fix")
-    ]]
+    buttons = [
+        [
+            InlineKeyboardButton(MODES["tldr"]["label"], callback_data="tldr"),
+            InlineKeyboardButton(MODES["trans"]["label"], callback_data="trans")
+        ],
+        [
+            InlineKeyboardButton(MODES["fix"]["label"], callback_data="fix"),
+            InlineKeyboardButton(MODES["note"]["label"], callback_data="note")
+        ],
+        [
+            InlineKeyboardButton(MODES["task"]["label"], callback_data="task")
+        ]
+    ]
     return InlineKeyboardMarkup(buttons)
 
 async def process_voice(chat_id, file_id, mode="tldr", message_id=None):
@@ -112,10 +165,13 @@ async def process_voice(chat_id, file_id, mode="tldr", message_id=None):
             # Fiyatları ve AI yanıtını paralel veya sırayla al (Zaman tasarrufu için fiyatı önden çekebiliriz)
             pricing_task = asyncio.create_task(get_dynamic_pricing(TARGET_MODEL))
 
+            current_time_str = datetime.now().strftime("%d %B %Y %A, Saat: %H:%M")
+            system_prompt = MODES[mode]["prompt"] + f"\n\nNot: Bugünün tarihi: {current_time_str}. Göreceli zamanları (yarın, haftaya vb.) buna göre hesapla."
+
             payload = {
                 "model": TARGET_MODEL,
                 "messages": [
-                    {"role": "system", "content": MODES[mode]["prompt"]},
+                    {"role": "system", "content": system_prompt},
                     {
                         "role": "user",
                         "content": [
@@ -147,19 +203,52 @@ async def process_voice(chat_id, file_id, mode="tldr", message_id=None):
             completion_tokens = usage.get("completion_tokens", 0)
             total_cost = (prompt_tokens * current_prices["prompt"]) + (completion_tokens * current_prices["completion"])
 
-            chunks = split_message(res_text)
-            copyable_text = f"<code>{chunks[0]}</code>"
+            # Parse Calendar info if present
+            calendar_url = None
+            clean_text = res_text
+            if "===CALENDAR===" in res_text:
+                parts = res_text.split("===CALENDAR===")
+                clean_text = parts[0].strip()
+                cal_info = parts[1].strip()
+                
+                title, start, end, details = "", "", "", ""
+                for line in cal_info.split("\n"):
+                    if line.startswith("TITLE:"): title = line.replace("TITLE:", "").strip()
+                    elif line.startswith("START:"): start = line.replace("START:", "").strip()
+                    elif line.startswith("END:"): end = line.replace("END:", "").strip()
+                    elif line.startswith("DETAILS:"): details = line.replace("DETAILS:", "").strip()
+                
+                if title and start:
+                    if not end:
+                        end = start
+                    params = {
+                        "action": "TEMPLATE",
+                        "text": title,
+                        "dates": f"{start}/{end}",
+                        "details": details
+                    }
+                    calendar_url = f"https://calendar.google.com/calendar/render?{urllib.parse.urlencode(params)}"
+
+            chunks = split_message(clean_text)
+            if not chunks:
+                chunks = ["İşlem tamamlandı, detaylı görev veya takvim kaydı oluşturuldu."]
             
+            copyable_text = f"<code>{html.escape(chunks[0])}</code>"
+            
+            keyboard = get_mode_keyboard()
+            if calendar_url:
+                keyboard.inline_keyboard.insert(0, [InlineKeyboardButton("📅 Google Takvime Ekle", url=calendar_url)])
+
             await bot.edit_message_text(
                 chat_id=chat_id, 
                 message_id=status_msg.message_id, 
                 text=copyable_text,
                 parse_mode=ParseMode.HTML,
-                reply_markup=get_mode_keyboard()
+                reply_markup=keyboard
             )
 
             for c in chunks[1:]:
-                await bot.send_message(chat_id=chat_id, text=f"<code>{c}</code>", parse_mode=ParseMode.HTML)
+                await bot.send_message(chat_id=chat_id, text=f"<code>{html.escape(c)}</code>", parse_mode=ParseMode.HTML)
 
             cost_msg = (
                 f"📊 <b>Kullanım Özeti:</b>\n"
@@ -194,11 +283,17 @@ async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: st
             return {"status": "unauthorized"}
 
         if update.message and update.message.voice:
+            duration = update.message.voice.duration
+            warning_text = ""
+            if duration > 90:
+                warning_text = f"\n\n⚠️ <b>Uyarı:</b> Ses kaydı uzun ({duration} sn). Vercel zaman aşımı (10 sn) sınırına takılma riski var."
+            
             await bot.send_message(
                 chat_id=update.message.chat.id,
-                text="🚀 Ses kaydı alındı! Seçiniz:",
+                text=f"🚀 Ses kaydı alındı! Seçiniz:{warning_text}",
                 reply_to_message_id=update.message.message_id,
-                reply_markup=get_mode_keyboard()
+                reply_markup=get_mode_keyboard(),
+                parse_mode=ParseMode.HTML
             )
 
         elif update.callback_query:
