@@ -1,11 +1,15 @@
-.env
-__pycache__/
-*.pyc
-/tmp/
-.vercel
-venv/
-test_*.py
-agents.md
-.env*
-compare.py
-comparison_report.md
+# Her şeyi yok say (Ignore all by default)
+*
+
+# Dizinlerin içeriğinin taranabilmesi için dizinleri hariç tut
+!api/
+!assets/
+
+# Sadece takip etmek istediğimiz dosyaları beyaz listeye (whitelist) al
+!.gitignore
+!README.md
+!requirements.txt
+!vercel.json
+!AGENT_STATE.md
+!api/index.py
+!assets/mascot.jpg
