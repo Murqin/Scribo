@@ -73,22 +73,6 @@ MODES = {
             "6. Giriş/açıklama veya \"İşte notunuz:\" gibi ön ekler ekleme, doğrudan Obsidian markdown kodunu üret."
         )
     },
-    "task": {
-        "label": "📅 Takvim Raporu",
-        "prompt": (
-            "Sen bir asistan ve zaman yönetimi uzmanısın. İletilen Türkçe ses kaydındaki buluşma, toplantı, görev veya randevu bilgilerini analiz et:\n"
-            "1. Ses kaydında geçen tüm görevleri ve yapılacak işleri listele.\n"
-            "2. Eğer bir buluşma, toplantı veya tarihli etkinlik varsa, bu etkinliğin detaylarını (Başlık, Tarih, Saat, Açıklama) çıkar.\n"
-            "3. Çıktının en sonuna, araya '===CALENDAR===' koyarak kesinlikle şu formatta bilgileri ekle (eğer etkinlik yoksa bu kısmı ekleme veya boş bırak):\n"
-            "===CALENDAR===\n"
-            "TITLE: [Etkinlik Başlığı]\n"
-            "START: [YYYYMMDDTHHMMSSZ formatında UTC başlangıç tarihi/saati ya da YYYYMMDD formatında gün]\n"
-            "END: [YYYYMMDDTHHMMSSZ formatında UTC bitiş tarihi/saati ya da YYYYMMDD formatında gün, yoksa başlangıçtan 1 saat sonrası]\n"
-            "DETAILS: [Açıklama detayı]\n"
-            "4. Bu yapılandırılmış bilginin üstüne (===CALENDAR=== satırının üstüne), kullanıcının okuyabilmesi için normal Türkçe görev özetini yaz.\n"
-            "5. Giriş/açıklama veya \"İşte takvim raporu:\" gibi ön ekler ekleme."
-        )
-    },
     "blog": {
         "label": "📰 Blog Yazısı",
         "prompt": (
@@ -147,12 +131,10 @@ def split_message(text: str, max_length: int = 4000) -> list[str]:
     if text: chunks.append(text)
     return chunks
 
-def get_mode_keyboard(calendar_url=None, obsidian_url=None):
+def get_mode_keyboard(obsidian_url=None):
     buttons = []
     if obsidian_url:
         buttons.append([InlineKeyboardButton("📓 Obsidian'a Aktar", url=obsidian_url)])
-    if calendar_url:
-        buttons.append([InlineKeyboardButton("📅 Google Takvime Ekle", url=calendar_url)])
         
     buttons.extend([
         [
@@ -164,7 +146,6 @@ def get_mode_keyboard(calendar_url=None, obsidian_url=None):
             InlineKeyboardButton(MODES["note"]["label"], callback_data="note")
         ],
         [
-            InlineKeyboardButton(MODES["task"]["label"], callback_data="task"),
             InlineKeyboardButton(MODES["blog"]["label"], callback_data="blog")
         ]
     ])
@@ -228,31 +209,7 @@ async def process_voice(chat_id, file_id, mode="tldr", message_id=None, base_url
             completion_tokens = usage.get("completion_tokens", 0)
             total_cost = (prompt_tokens * current_prices["prompt"]) + (completion_tokens * current_prices["completion"])
 
-            # Parse Calendar info if present
-            calendar_url = None
             clean_text = res_text
-            if "===CALENDAR===" in res_text:
-                parts = res_text.split("===CALENDAR===")
-                clean_text = parts[0].strip()
-                cal_info = parts[1].strip()
-                
-                title, start, end, details = "", "", "", ""
-                for line in cal_info.split("\n"):
-                    if line.startswith("TITLE:"): title = line.replace("TITLE:", "").strip()
-                    elif line.startswith("START:"): start = line.replace("START:", "").strip()
-                    elif line.startswith("END:"): end = line.replace("END:", "").strip()
-                    elif line.startswith("DETAILS:"): details = line.replace("DETAILS:", "").strip()
-                
-                if title and start:
-                    if not end:
-                        end = start
-                    params = {
-                        "action": "TEMPLATE",
-                        "text": title,
-                        "dates": f"{start}/{end}",
-                        "details": details
-                    }
-                    calendar_url = f"https://calendar.google.com/calendar/render?{urllib.parse.urlencode(params)}"
 
             # Parse Obsidian URL if in note or blog mode
             obsidian_url = None
@@ -276,11 +233,11 @@ async def process_voice(chat_id, file_id, mode="tldr", message_id=None, base_url
 
             chunks = split_message(clean_text)
             if not chunks:
-                chunks = ["İşlem tamamlandı, detaylı görev veya takvim kaydı oluşturuldu."]
+                chunks = ["İşlem tamamlandı."]
             
             copyable_text = f"<code>{html.escape(chunks[0])}</code>"
             
-            keyboard = get_mode_keyboard(calendar_url=calendar_url, obsidian_url=obsidian_url)
+            keyboard = get_mode_keyboard(obsidian_url=obsidian_url)
 
             await bot.edit_message_text(
                 chat_id=chat_id, 
