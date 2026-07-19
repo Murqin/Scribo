@@ -6,3 +6,6 @@ __pycache__/
 venv/
 test_*.py
 agents.md
+.env*
+compare.py
+comparison_report.md
