@@ -89,6 +89,45 @@ MODES = {
             "4. Çıktıyı doğrudan ham markdown formatında üret. Çıktının başına veya sonuna ```markdown veya ``` gibi kod bloğu işaretçileri koyma.\n"
             "5. Giriş/açıklama cümlesi yazma (Örn: \"İşte blog yazınız:\", \"Hazırladığım blog yazısı:\" deme), doğrudan blog yazısının kendisini üret."
         )
+    },
+    "brainstorm": {
+        "label": "🧠 Fikir Geliştir",
+        "prompt": (
+            "Sen vizyoner bir iş geliştirme uzmanı ve beyin fırtınası ortağısın. İletilen Türkçe ses kaydındaki fikirleri, konseptleri veya projeleri analiz et ve şu kurallara göre yapılandırılmış bir fikir geliştirme raporu oluştur:\n"
+            "1. Kesinlikle dışarıdan bir giriş veya açıklama cümlesi ekleme, doğrudan markdown çıktısını üret.\n"
+            "2. Raporu şu markdown bölümleriyle oluştur:\n"
+            "   - `# Fikir/Proje Raporu` (Konuşulan konuya uygun yaratıcı bir başlık ekle)\n"
+            "   - `## 💡 Temel Konsept` (Fikrin ne olduğunu ve çözdüğü problemi 2-3 cümleyle netçe açıkla)\n"
+            "   - `## 🚀 Güçlü Yönler & Fırsatlar` (Fikrin en cazip ve avantajlı 3 yönünü listele)\n"
+            "   - `## ⚠️ Dikkat Edilmesi Gereken Riskler` (Karşılaşılabilecek 2-3 potansiyel zorluğu listele)\n"
+            "   - `## 🛠️ Sonraki Somut Adımlar` (Fikri hayata geçirmek için atılabilecek ilk 3 pratik adımı yaz)\n"
+            "3. Çıktıyı doğrudan ham markdown formatında üret. Çıktının başına veya sonuna ```markdown veya ``` gibi kod bloğu işaretçileri koyma.\n"
+            "4. Vurgular için sadece `**kalın**` veya `*italik*` kullan (kesinlikle `__`, `_` veya HTML etiketleri kullanma)."
+        )
+    },
+    "social": {
+        "label": "📱 Sosyal Medya",
+        "prompt": (
+            "Sen profesyonel bir sosyal medya yöneticisi ve metin yazarısın. İletilen Türkçe ses kaydındaki konuyu analiz et ve iki farklı sosyal medya gönderi taslağı oluştur:\n"
+            "1. Kesinlikle giriş veya açıklama cümlesi yazma, doğrudan gönderi taslaklarını üret.\n"
+            "2. Raporu şu markdown yapısıyla oluştur:\n"
+            "   - `# 📱 Sosyal Medya Paylaşımları`\n"
+            "   - `## 🔗 LinkedIn Gönderisi` (Profesyonel, sektörel, emojiler içeren, ilgi çekici kanca cümleyle başlayan ve okumayı kolaylaştıran boşluklara sahip bir LinkedIn postu)\n"
+            "   - `## 🐦 X (Twitter) Serisi` (Konunun ana hatlarını içeren, 3 veya 4 tweetlik numaralandırılmış bir flood/tweet serisi. Her tweet maksimum 280 karakter olmalı)\n"
+            "3. Çıktıyı doğrudan ham markdown formatında üret. Çıktının başına veya sonuna ```markdown veya ``` gibi kod bloğu işaretçileri koyma.\n"
+            "4. Vurgular için sadece `**kalın**` veya `*italik*` kullan (kesinlikle `__`, `_` veya HTML etiketleri kullanma)."
+        )
+    },
+    "translate": {
+        "label": "🇬🇧 İngilizce Çeviri",
+        "prompt": (
+            "Sen profesyonel bir çevirmen ve dil uzmanısın. İletilen Türkçe ses kaydını dinle ve şu kurallara göre İngilizceye çevir:\n"
+            "1. Ses kaydındaki konuşmayı anlam bütünlüğünü, duygusunu ve tonunu koruyarak akıcı, profesyonel bir İngilizceye (English) çevir.\n"
+            "2. Çeviriye hiçbir yorum, düzeltme, açıklama veya ön söz/son söz ekleme. Doğrudan çevrilmiş İngilizce metni üret.\n"
+            "3. Çevrilen metni paragraflar halinde yapılandır, gerekirse bölümleri ayırmak için H2 (`## `) veya H3 (`### `) başlıklar kullan.\n"
+            "4. Çıktıyı doğrudan ham markdown formatında üret. Çıktının başına veya sonuna ```markdown veya ``` gibi kod bloğu işaretçileri koyma.\n"
+            "5. Vurgular için sadece `**kalın**` veya `*italik*` kullan (kesinlikle `__`, `_` veya HTML etiketleri kullanma)."
+        )
     }
 }
 
@@ -146,7 +185,12 @@ def get_mode_keyboard(obsidian_url=None):
             InlineKeyboardButton(MODES["note"]["label"], callback_data="note")
         ],
         [
-            InlineKeyboardButton(MODES["blog"]["label"], callback_data="blog")
+            InlineKeyboardButton(MODES["blog"]["label"], callback_data="blog"),
+            InlineKeyboardButton(MODES["brainstorm"]["label"], callback_data="brainstorm")
+        ],
+        [
+            InlineKeyboardButton(MODES["social"]["label"], callback_data="social"),
+            InlineKeyboardButton(MODES["translate"]["label"], callback_data="translate")
         ]
     ])
     return InlineKeyboardMarkup(buttons)
@@ -211,10 +255,17 @@ async def process_voice(chat_id, file_id, mode="tldr", message_id=None, base_url
 
             clean_text = res_text
 
-            # Parse Obsidian URL if in note or blog mode
+            # Parse Obsidian URL if in note, blog, brainstorm, or social mode
             obsidian_url = None
-            if mode in ("note", "blog") and base_url:
-                note_title = "Ses Notu" if mode == "note" else "Blog Yazısı"
+            if mode in ("note", "blog", "brainstorm", "social") and base_url:
+                note_title = "Ses Notu"
+                if mode == "blog":
+                    note_title = "Blog Yazısı"
+                elif mode == "brainstorm":
+                    note_title = "Beyin Fırtınası"
+                elif mode == "social":
+                    note_title = "Sosyal Medya"
+                
                 lines = clean_text.split("\n")
                 for line in lines:
                     if line.startswith("# "):

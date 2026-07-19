@@ -23,7 +23,10 @@
   - **✍️ Transkript:** Resolves a precise, word-for-word literal translation/transcription of the spoken recording.
   - **🛠️ Düzelt:** Transcribes the audio while correcting syntax, spelling errors, and outputting a highly fluent, reading-friendly block.
   - **📓 Obsidian Notu:** Creates a copy-paste ready structured Obsidian note (title, tags, summary, bullet points, task checklist).
-  - **📅 Takvim Raporu:** Detects events, meetings, and dates to automatically generate a direct Google Calendar add link button.
+  - **📰 Blog Yazısı:** Converts voice notes to blog posts in a markdown format fully compatible with markdown.js.
+  - **🧠 Fikir Geliştir:** Analyzes concepts/ideas in the audio to generate a structured project report with concept summary, SWOT analysis, and next actions.
+  - **📱 Sosyal Medya:** Generates ready-to-use posts for LinkedIn and X (Twitter Thread) based on the audio content.
+  - **🇬🇧 İngilizce Çeviri:** Natively translates the spoken Turkish audio into fluent, structured English.
 
 ---
 

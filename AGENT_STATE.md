@@ -16,6 +16,7 @@ Improve bot prompts, add Obsidian note mode, add Blog mode, disable API document
 - 2026-07-19 12:28 - Refined blog prompt to prevent hallucination/external generation and strictly format spoken words.
 - 2026-07-19 12:30 - Removed "Takvim Raporu" (Google Calendar integration) feature and button completely.
 - 2026-07-19 12:33 - Renamed the project to "Scribo" and updated README.md accordingly.
+- 2026-07-19 13:06 - Integrated "Fikir Geliştir" (brainstorm), "Sosyal Medya" (social), and "İngilizce Çeviri" (translate) modes, including balanced keyboard layout and Obsidian export support.
 ## 3. Next Steps
 - Commit changes.
 ## 4. Known Issues & Roadblocks
