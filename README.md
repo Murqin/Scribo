@@ -1,10 +1,10 @@
-# Telegram Voice TL;DR Bot (tldr-bot) 🎙️
+# Scribo 🎙️
 
 <p align="center">
-  <img src="assets/mascot.jpg" alt="TL;DR Bot Mascot" width="200" style="border-radius: 50%;"/>
+  <img src="assets/mascot.jpg" alt="Scribo Mascot" width="200" style="border-radius: 50%;"/>
 </p>
 
-> **A serverless, FastAPI-powered Telegram bot running on Vercel that intercepts voice messages, transcribes or summarizes them using Gemini 3.5 Flash (via OpenRouter audio modality), and audits execution costs in real-time.**
+> **A serverless, FastAPI-powered Telegram bot running on Vercel that intercepts voice messages, transcribes, formats, and transforms them into summaries, Obsidian notes, or professional blog posts using Gemini 3.5 Flash (via OpenRouter audio modality), and audits execution costs in real-time.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](LICENSE)
 [![Tech: FastAPI](https://img.shields.io/badge/FastAPI-v0.100%2B-009688?style=flat-square&logo=fastapi&logoColor=white)](#)
@@ -104,7 +104,7 @@ vercel --prod
 ## 📂 Project Architecture
 
 ```text
-tldr-bot/
+scribo/
 ├── api/
 │   └── index.py            # Primary FastAPI entry point & bot controller
 ├── requirements.txt         # Python package dependencies
