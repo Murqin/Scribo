@@ -1,6 +1,6 @@
 # AGENT STATE
 ## 1. Current Goal
-Improve bot prompts, add Obsidian note mode, disable API documentation for security, migrate to Gemini 3.5 Flash, and commit changes.
+Improve bot prompts, add Obsidian note mode, add Blog mode, disable API documentation for security, migrate to Gemini 3.5 Flash, and commit changes.
 ## 2. Completed Steps
 - 2026-07-18 03:07 - Refactored prompt definitions in MODES to improve transcription accuracy and formatting, and added "Obsidian Notu" mode.
 - 2026-07-18 03:07 - Replaced inline keyboard layout with a 2x2 grid to support 4 options elegantly.
@@ -10,6 +10,9 @@ Improve bot prompts, add Obsidian note mode, disable API documentation for secur
 - 2026-07-18 03:22 - Updated fallback pricing constants in get_dynamic_pricing to match Gemini 3.5 Flash's rates ($1.50/M input, $9.00/M output).
 - 2026-07-18 03:32 - Added Vercel timeout warning for voice notes > 90 seconds, and implemented Google Calendar integration (with dynamic date/time injection and inline buttons) for task reports.
 - 2026-07-18 17:56 - Implemented Obsidian new note creation redirect endpoint (/obsidian) with HTML/JS redirection and inline button integration for "Obsidian Notu" mode.
+- 2026-07-19 05:07 - Added "Blog Yazısı" mode to convert voice notes to blog posts in a markdown format fully compatible with markdown.js.
+- 2026-07-19 05:07 - Updated keyboard layout to include "Blog Yazısı" mode button alongside "Takvim Raporu" mode button.
+- 2026-07-19 05:07 - Enabled Obsidian export option for "Blog Yazısı" mode as well.
 ## 3. Next Steps
 - Commit changes.
 ## 4. Known Issues & Roadblocks

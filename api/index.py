@@ -88,6 +88,22 @@ MODES = {
             "4. Bu yapılandırılmış bilginin üstüne (===CALENDAR=== satırının üstüne), kullanıcının okuyabilmesi için normal Türkçe görev özetini yaz.\n"
             "5. Giriş/açıklama veya \"İşte takvim raporu:\" gibi ön ekler ekleme."
         )
+    },
+    "blog": {
+        "label": "📰 Blog Yazısı",
+        "prompt": (
+            "Sen uzman bir blog yazarı ve içerik üreticisisin. İletilen Türkçe ses kaydını şu kurallara göre profesyonel bir blog yazısına dönüştür:\n"
+            "1. Ses kaydındaki ana fikri ve önemli detayları kullanarak okuyucu için ilgi çekici, akıcı ve bilgilendirici bir blog yazısı oluştur.\n"
+            "2. Yazıyı yapılandırmak için sadece şu markdown öğelerini kullan (HTML etiketleri kesinlikle kullanma):\n"
+            "   - En üste konuyu özetleyen tek bir `# Başlık` ekle.\n"
+            "   - Bölümleri ayırmak için `## Alt Başlık` veya `### Alt Başlık` kullan.\n"
+            "   - Paragraflar arasında boş satırlar bırak.\n"
+            "   - Önemli vurgular için sadece `**kalın**` veya `*italik*` kullan (kesinlikle `__` veya `_` veya HTML etiketleri kullanma).\n"
+            "   - Alıntılar için `> ` işaretiyle başlayan bloklar kullan.\n"
+            "   - Maddeler için sadece `- ` (liste) veya `1. ` (numaralı liste) kullan (iç içe listelerden kaçın).\n"
+            "3. Çıktıyı doğrudan ham markdown formatında üret. Çıktının başına veya sonuna ```markdown veya ``` gibi kod bloğu işaretçileri koyma.\n"
+            "4. Giriş/açıklama cümlesi yazma (Örn: \"İşte blog yazınız:\", \"Hazırladığım blog yazısı:\" deme), doğrudan blog yazısının kendisini üret."
+        )
     }
 }
 
@@ -147,7 +163,8 @@ def get_mode_keyboard(calendar_url=None, obsidian_url=None):
             InlineKeyboardButton(MODES["note"]["label"], callback_data="note")
         ],
         [
-            InlineKeyboardButton(MODES["task"]["label"], callback_data="task")
+            InlineKeyboardButton(MODES["task"]["label"], callback_data="task"),
+            InlineKeyboardButton(MODES["blog"]["label"], callback_data="blog")
         ]
     ])
     return InlineKeyboardMarkup(buttons)
@@ -236,10 +253,10 @@ async def process_voice(chat_id, file_id, mode="tldr", message_id=None, base_url
                     }
                     calendar_url = f"https://calendar.google.com/calendar/render?{urllib.parse.urlencode(params)}"
 
-            # Parse Obsidian URL if in note mode
+            # Parse Obsidian URL if in note or blog mode
             obsidian_url = None
-            if mode == "note" and base_url:
-                note_title = "Ses Notu"
+            if mode in ("note", "blog") and base_url:
+                note_title = "Ses Notu" if mode == "note" else "Blog Yazısı"
                 lines = clean_text.split("\n")
                 for line in lines:
                     if line.startswith("# "):
