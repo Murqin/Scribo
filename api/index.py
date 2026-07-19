@@ -170,12 +170,8 @@ def split_message(text: str, max_length: int = 4000) -> list[str]:
     if text: chunks.append(text)
     return chunks
 
-def get_mode_keyboard(obsidian_url=None):
-    buttons = []
-    if obsidian_url:
-        buttons.append([InlineKeyboardButton("📓 Obsidian'a Aktar", url=obsidian_url)])
-        
-    buttons.extend([
+def get_mode_keyboard():
+    buttons = [
         [
             InlineKeyboardButton(MODES["tldr"]["label"], callback_data="tldr"),
             InlineKeyboardButton(MODES["trans"]["label"], callback_data="trans")
@@ -192,7 +188,7 @@ def get_mode_keyboard(obsidian_url=None):
             InlineKeyboardButton(MODES["social"]["label"], callback_data="social"),
             InlineKeyboardButton(MODES["translate"]["label"], callback_data="translate")
         ]
-    ])
+    ]
     return InlineKeyboardMarkup(buttons)
 
 async def process_voice(chat_id, file_id, mode="tldr", message_id=None, base_url=None):
@@ -255,40 +251,13 @@ async def process_voice(chat_id, file_id, mode="tldr", message_id=None, base_url
 
             clean_text = res_text
 
-            # Parse Obsidian URL if in note, blog, brainstorm, or social mode
-            obsidian_url = None
-            if mode in ("note", "blog", "brainstorm", "social") and base_url:
-                note_title = "Ses Notu"
-                if mode == "blog":
-                    note_title = "Blog Yazısı"
-                elif mode == "brainstorm":
-                    note_title = "Beyin Fırtınası"
-                elif mode == "social":
-                    note_title = "Sosyal Medya"
-                
-                lines = clean_text.split("\n")
-                for line in lines:
-                    if line.startswith("# "):
-                        note_title = line.replace("# ", "").strip()
-                        break
-                
-                safe_content = clean_text
-                if len(safe_content) > 1500:
-                    safe_content = safe_content[:1500] + "\n\n...(Kırpıldı)"
-                
-                params = {
-                    "name": note_title,
-                    "content": safe_content
-                }
-                obsidian_url = f"{base_url}obsidian?{urllib.parse.urlencode(params)}"
-
             chunks = split_message(clean_text)
             if not chunks:
                 chunks = ["İşlem tamamlandı."]
             
             copyable_text = f"<code>{html.escape(chunks[0])}</code>"
             
-            keyboard = get_mode_keyboard(obsidian_url=obsidian_url)
+            keyboard = get_mode_keyboard()
 
             await bot.edit_message_text(
                 chat_id=chat_id, 
@@ -320,76 +289,6 @@ async def process_voice(chat_id, file_id, mode="tldr", message_id=None, base_url
         else:
             await bot.send_message(chat_id=chat_id, text=err_txt, reply_markup=kb)
 
-@app.get("/obsidian", response_class=HTMLResponse)
-async def open_obsidian(name: str = "", content: str = ""):
-    # URL'den gelen verileri javascript ile obsidian://new formatına yönlendiriyoruz
-    html_content = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>Obsidian'a Aktarılıyor...</title>
-        <meta charset="utf-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <style>
-            body {{
-                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-                justify-content: center;
-                height: 100vh;
-                margin: 0;
-                background-color: #1e1e1e;
-                color: #ffffff;
-                text-align: center;
-                padding: 20px;
-            }}
-            .loader {{
-                border: 4px solid #333;
-                border-top: 4px solid #8b5cf6;
-                border-radius: 50%;
-                width: 40px;
-                height: 40px;
-                animation: spin 1s linear infinite;
-                margin-bottom: 20px;
-            }}
-            @keyframes spin {{
-                0% {{ transform: rotate(0deg); }}
-                100% {{ transform: rotate(360deg); }}
-            }}
-            .btn {{
-                background-color: #8b5cf6;
-                color: white;
-                border: none;
-                padding: 10px 20px;
-                border-radius: 5px;
-                cursor: pointer;
-                font-weight: bold;
-                text-decoration: none;
-                margin-top: 20px;
-            }}
-        </style>
-    </head>
-    <body>
-        <div class="loader"></div>
-        <h2>Obsidian Açılıyor...</h2>
-        <p>Notunuz aktarılıyor. Eğer uygulama açılmazsa aşağıdaki butona tıklayabilirsiniz:</p>
-        <a id="obsidian-link" class="btn" href="#">Obsidian'ı Aç</a>
-
-        <script>
-            const name = {repr(name)};
-            const content = {repr(content)};
-            const uri = "obsidian://new?name=" + encodeURIComponent(name) + "&content=" + encodeURIComponent(content);
-            
-            document.getElementById("obsidian-link").href = uri;
-            
-            // Otomatik yönlendir
-            window.location.href = uri;
-        </script>
-    </body>
-    </html>
-    """
-    return HTMLResponse(content=html_content)
 
 @app.post("/webhook")
 async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: str = Header(None)):
