@@ -13,6 +13,7 @@ Improve bot prompts, add Obsidian note mode, add Blog mode, disable API document
 - 2026-07-19 05:07 - Added "Blog Yazısı" mode to convert voice notes to blog posts in a markdown format fully compatible with markdown.js.
 - 2026-07-19 05:07 - Updated keyboard layout to include "Blog Yazısı" mode button alongside "Takvim Raporu" mode button.
 - 2026-07-19 05:07 - Enabled Obsidian export option for "Blog Yazısı" mode as well.
+- 2026-07-19 12:28 - Refined blog prompt to prevent hallucination/external generation and strictly format spoken words.
 ## 3. Next Steps
 - Commit changes.
 ## 4. Known Issues & Roadblocks

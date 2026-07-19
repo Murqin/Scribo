@@ -92,17 +92,18 @@ MODES = {
     "blog": {
         "label": "📰 Blog Yazısı",
         "prompt": (
-            "Sen uzman bir blog yazarı ve içerik üreticisisin. İletilen Türkçe ses kaydını şu kurallara göre profesyonel bir blog yazısına dönüştür:\n"
-            "1. Ses kaydındaki ana fikri ve önemli detayları kullanarak okuyucu için ilgi çekici, akıcı ve bilgilendirici bir blog yazısı oluştur.\n"
-            "2. Yazıyı yapılandırmak için sadece şu markdown öğelerini kullan (HTML etiketleri kesinlikle kullanma):\n"
+            "Sen uzman bir editör ve blog yazarıysın. İletilen Türkçe ses kaydındaki konuşmayı, konuşmacının anlattığı tüm fikirleri ve detayları koruyarak profesyonel bir blog yazısı formatında düzenle:\n"
+            "1. Kesinlikle konuşmada geçmeyen, ses kaydında bahsedilmeyen dışsal bilgileri, konuları veya fikirleri yazıya ekleme. Sadece konuşmacının kendi anlattığı içeriği temel al.\n"
+            "2. Konuşmadaki dil bilgisi hatalarını ve devrik cümleleri düzelt, ancak konuşmacının anlatmak istediği ana fikri, argümanları ve detayları aynen koruyarak akıcı ve yapılandırılmış bir blog yazısı oluştur.\n"
+            "3. Yazıyı yapılandırmak için sadece şu markdown öğelerini kullan (HTML etiketleri kesinlikle kullanma):\n"
             "   - En üste konuyu özetleyen tek bir `# Başlık` ekle.\n"
             "   - Bölümleri ayırmak için `## Alt Başlık` veya `### Alt Başlık` kullan.\n"
             "   - Paragraflar arasında boş satırlar bırak.\n"
             "   - Önemli vurgular için sadece `**kalın**` veya `*italik*` kullan (kesinlikle `__` veya `_` veya HTML etiketleri kullanma).\n"
             "   - Alıntılar için `> ` işaretiyle başlayan bloklar kullan.\n"
             "   - Maddeler için sadece `- ` (liste) veya `1. ` (numaralı liste) kullan (iç içe listelerden kaçın).\n"
-            "3. Çıktıyı doğrudan ham markdown formatında üret. Çıktının başına veya sonuna ```markdown veya ``` gibi kod bloğu işaretçileri koyma.\n"
-            "4. Giriş/açıklama cümlesi yazma (Örn: \"İşte blog yazınız:\", \"Hazırladığım blog yazısı:\" deme), doğrudan blog yazısının kendisini üret."
+            "4. Çıktıyı doğrudan ham markdown formatında üret. Çıktının başına veya sonuna ```markdown veya ``` gibi kod bloğu işaretçileri koyma.\n"
+            "5. Giriş/açıklama cümlesi yazma (Örn: \"İşte blog yazınız:\", \"Hazırladığım blog yazısı:\" deme), doğrudan blog yazısının kendisini üret."
         )
     }
 }
