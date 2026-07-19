@@ -18,7 +18,8 @@ Improve bot prompts, add Obsidian note mode, add Blog mode, disable API document
 - 2026-07-19 12:33 - Renamed the project to "Scribo" and updated README.md accordingly.
 - 2026-07-19 13:06 - Integrated "Fikir Geliştir" (brainstorm), "Sosyal Medya" (social), and "İngilizce Çeviri" (translate) modes, including balanced keyboard layout and Obsidian export support.
 - 2026-07-19 13:10 - Removed "Obsidian'a Aktar" button and the redirect endpoint completely.
+- 2026-07-19 13:57 - Cleaned up all temporary testing files and configured a whitelist-only .gitignore strategy.
 ## 3. Next Steps
-- Commit changes.
+- Push changes to remote.
 ## 4. Known Issues & Roadblocks
 - None.
