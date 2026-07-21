@@ -1,5 +1,7 @@
-# Compiled binaries
+# Compiled binaries & release packages
 /scribo
+scribo-linux-*
+/dist/
 
 # Environment variables & local custom configs
 .env
