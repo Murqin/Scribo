@@ -28,12 +28,6 @@
   <img src="assets/demo-preview.png" alt="Scribo Demo Preview" width="80%" style="border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);"/>
 </p>
 
-<p align="center">
-  <img src="assets/screenshot-keyboard.png" alt="Interactive Inline Keyboard" width="48%" style="border-radius: 8px;"/>
-  &nbsp;
-  <img src="assets/screenshot-response.png" alt="AI Analysis Result" width="48%" style="border-radius: 8px;"/>
-</p>
-
 ---
 
 ## ✨ Features
