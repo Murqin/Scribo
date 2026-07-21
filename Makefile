@@ -15,8 +15,8 @@ release: build-linux-amd64 build-linux-arm64
 	rm -rf dist && mkdir -p dist/scribo-linux-amd64/scribo dist/scribo-linux-arm64/scribo
 	cp scribo-linux-amd64 dist/scribo-linux-amd64/scribo/scribo
 	cp scribo-linux-arm64 dist/scribo-linux-arm64/scribo/scribo
-	cp setup_service.sh README.md LICENSE dist/scribo-linux-amd64/scribo/
-	cp setup_service.sh README.md LICENSE dist/scribo-linux-arm64/scribo/
+	cp setup_service.sh restart.sh stop.sh uninstall.sh README.md LICENSE dist/scribo-linux-amd64/scribo/
+	cp setup_service.sh restart.sh stop.sh uninstall.sh README.md LICENSE dist/scribo-linux-arm64/scribo/
 	cp modes.example.json dist/scribo-linux-amd64/scribo/modes.json
 	cp modes.example.json dist/scribo-linux-arm64/scribo/modes.json
 	cp .env.example dist/scribo-linux-amd64/scribo/.env
