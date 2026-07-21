@@ -20,23 +20,9 @@ type Config struct {
 func LoadConfig() *Config {
 	loadDotEnv(".env")
 
-	defaultModel := getEnv("MODEL", getEnv("GEMINI_MODEL", "gemini-3.6-flash"))
-
-	googleModel := getEnv("GOOGLE_MODEL", "")
-	if googleModel == "" {
-		googleModel = strings.TrimPrefix(defaultModel, "google/")
-	} else {
-		googleModel = strings.TrimPrefix(googleModel, "google/")
-	}
-
-	openRouterModel := getEnv("OPENROUTER_MODEL", "")
-	if openRouterModel == "" {
-		if !strings.HasPrefix(defaultModel, "google/") {
-			openRouterModel = "google/" + defaultModel
-		} else {
-			openRouterModel = defaultModel
-		}
-	}
+	defaultModel := getEnv("MODEL", "gemini-3.6-flash")
+	googleModel := getEnv("GOOGLE_MODEL", defaultModel)
+	openRouterModel := getEnv("OPENROUTER_MODEL", "google/gemini-3.6-flash")
 
 	geminiKey := getEnv("GEMINI_API_KEY", getEnv("GOOGLE_API_KEY", ""))
 
