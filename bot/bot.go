@@ -159,8 +159,13 @@ func (b *BotRunner) processVoice(chatID int64, fileID string, modeID string, sta
 	currentTimeStr := time.Now().Format("02 January 2006 Monday, Saat: 15:04")
 	systemPrompt := fmt.Sprintf("%s\n\nNot: Bugünün tarihi: %s. Göreceli zamanları buna göre hesapla.", modeInfo.Prompt, currentTimeStr)
 
+	selectedProvider := forceProvider
+	if selectedProvider == "" {
+		selectedProvider = b.cfg.DefaultProvider
+	}
+
 	// 1. Google Provider Try
-	if forceProvider != "openrouter" && b.cfg.GeminiAPIKey != "" {
+	if selectedProvider != "openrouter" && b.cfg.GeminiAPIKey != "" {
 		b.api.Send(tgbotapi.NewEditMessageText(chatID, statusMsgID, fmt.Sprintf("🔄 %s hazırlanıyor... (Google Free Tier)", modeInfo.Label)))
 
 		resText, gErr := provider.CallGoogleAPI(b.cfg.GeminiAPIKey, b.cfg.GoogleModel, systemPrompt, base64Audio)

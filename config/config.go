@@ -15,6 +15,7 @@ type Config struct {
 	DefaultModel     string
 	GoogleModel      string
 	OpenRouterModel  string
+	DefaultProvider  string
 }
 
 func LoadConfig() *Config {
@@ -25,6 +26,7 @@ func LoadConfig() *Config {
 	openRouterModel := getEnv("OPENROUTER_MODEL", "google/gemini-3.6-flash")
 
 	geminiKey := getEnv("GEMINI_API_KEY", getEnv("GOOGLE_API_KEY", ""))
+	defaultProvider := strings.ToLower(getEnv("DEFAULT_PROVIDER", getEnv("PROVIDER", "google")))
 
 	return &Config{
 		TelegramToken:    getEnv("TELEGRAM_TOKEN", ""),
@@ -35,6 +37,7 @@ func LoadConfig() *Config {
 		DefaultModel:     defaultModel,
 		GoogleModel:      googleModel,
 		OpenRouterModel:  openRouterModel,
+		DefaultProvider:  defaultProvider,
 	}
 }
 

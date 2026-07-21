@@ -50,6 +50,17 @@ make build
 make test
 ```
 
+### Environment Configuration
+```env
+TELEGRAM_TOKEN=your_telegram_bot_token
+OPENROUTER_API_KEY=your_openrouter_developer_api_key
+GEMINI_API_KEY=your_google_ai_studio_free_tier_api_key
+DEFAULT_PROVIDER=google
+GOOGLE_MODEL=gemini-3.6-flash
+OPENROUTER_MODEL=google/gemini-3.6-flash
+ALLOWED_USER_ID=your_numerical_telegram_user_id
+```
+
 ### Run 7/24 Service on Oracle VPS (Automated Setup)
 ```bash
 chmod +x setup_service.sh
