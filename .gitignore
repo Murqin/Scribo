@@ -10,3 +10,6 @@ modes.json
 # System & OS files
 .DS_Store
 *.log
+
+# Large media files (too big for git)
+assets/demo-preview.gif
