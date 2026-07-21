@@ -4,12 +4,12 @@
   <img src="assets/mascot.jpg" alt="Scribo Mascot" width="200" style="border-radius: 50%;"/>
 </p>
 
-> **A serverless, FastAPI-powered Telegram bot running on Vercel that intercepts voice messages, transcribes, formats, and transforms them into summaries, Obsidian notes, or professional blog posts using Gemini 3.5 Flash (via OpenRouter audio modality), and audits execution costs in real-time.**
+> **A serverless, FastAPI-powered Telegram bot running on Vercel that intercepts voice messages, transcribes, formats, and transforms them using Google Gemini API (Free Tier) with seamless fallback to OpenRouter (Paid Gemini 3.6 Flash), and audits execution costs in real-time.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](LICENSE)
 [![Tech: FastAPI](https://img.shields.io/badge/FastAPI-v0.100%2B-009688?style=flat-square&logo=fastapi&logoColor=white)](#)
 [![Tech: Python](https://img.shields.io/badge/Python-3.10%2B-blue?style=flat-square&logo=python&logoColor=white)](#)
-[![Model: Gemini 3.5 Flash](https://img.shields.io/badge/Model-Gemini%203.5%20Flash-red?style=flat-square&logo=google&logoColor=white)](#)
+[![Model: Gemini 3.6 Flash](https://img.shields.io/badge/Model-Gemini%203.6%20Flash-red?style=flat-square&logo=google&logoColor=white)](#)
 [![Infrastructure: Vercel](https://img.shields.io/badge/Infrastructure-Vercel%20Serverless-black?style=flat-square&logo=vercel&logoColor=white)](#)
 
 ---
@@ -17,7 +17,8 @@
 ## ✨ Features
 
 - **⚡ Serverless FastAPI Webhook:** Built for serverless deployment on Vercel (`api/index.py`), executing instantly with zero persistent container overhead.
-- **🎙️ Direct Audio Modality:** Bypasses conventional, slow speech-to-text converters. Encodes raw `.ogg` voice buffers to base64 and streams them directly to Gemini 3.5 Flash's native audio-sensing model.
+- **🆓 Google Free Tier First Strategy:** Tries official Google Gemini API (Free Tier) first. If rate limits or errors occur, prompts the user interactively before falling back to paid OpenRouter service.
+- **🎙️ Direct Audio Modality:** Bypasses conventional, slow speech-to-text converters. Encodes raw `.ogg` voice buffers to base64 and streams them directly to Gemini's native audio-sensing model.
 - **🏷️ Smart Interactive Modes:** Features inline button selectors situated directly inside Telegram chats:
   - **📝 Özet (TL;DR):** Generates a concise, 1st-person Turkish summary without intro/outro text, keeping the context clean.
   - **✍️ Transkript:** Resolves a precise, word-for-word literal translation/transcription of the spoken recording.
@@ -27,6 +28,7 @@
   - **🧠 Fikir Geliştir:** Analyzes concepts/ideas in the audio to generate a structured project report with concept summary, SWOT analysis, and next actions.
   - **📱 Sosyal Medya:** Generates ready-to-use posts for LinkedIn and X (Twitter Thread) based on the audio content.
   - **🇬🇧 İngilizce Çeviri:** Natively translates the spoken Turkish audio into fluent, structured English.
+  - **🎯 Master Prompt:** Analyzes the scope of the audio topic and synthesizes an expert, reusable Master Prompt tailored for ChatGPT, Claude, or Gemini.
 
 ---
 
@@ -62,6 +64,8 @@ Create a local `.env` file (or set keys inside your Vercel deployment console):
 ```env
 TELEGRAM_TOKEN=your_telegram_bot_token
 OPENROUTER_API_KEY=your_openrouter_developer_api_key
+GEMINI_API_KEY=your_google_ai_studio_free_tier_api_key
+MODEL=gemini-3.6-flash
 WEBHOOK_SECRET=your_custom_secure_secret_token
 ALLOWED_USER_ID=your_numerical_telegram_user_id
 ```
@@ -108,8 +112,10 @@ vercel --prod
 
 ```text
 scribo/
+├── main.py                 # Primary entrypoint for Oracle Cloud VPS (Long Polling 24/7)
 ├── api/
-│   └── index.py            # Primary FastAPI entry point & bot controller
+│   └── index.py            # FastAPI entrypoint for Vercel serverless webhook
+├── setup_keepalive.sh      # Oracle Cloud idle reclaim prevention setup script
 ├── requirements.txt         # Python package dependencies
 ├── vercel.json              # Vercel serverless routing configuration
 └── README.md

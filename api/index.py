@@ -20,14 +20,17 @@ logger = logging.getLogger(__name__)
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
 WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET")
 ALLOWED_USER_ID = os.environ.get("ALLOWED_USER_ID")
 
 app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 bot = Bot(token=TELEGRAM_TOKEN)
 
-# Sabitler
-TARGET_MODEL = "google/gemini-3.5-flash"
+# Model Yapılandırması (Env üzerinden esnek ve dinamik tanımlama)
+DEFAULT_MODEL = os.environ.get("MODEL") or os.environ.get("GEMINI_MODEL") or "gemini-3.6-flash"
+GOOGLE_MODEL = os.environ.get("GOOGLE_MODEL") or DEFAULT_MODEL
+TARGET_MODEL = os.environ.get("OPENROUTER_MODEL") or (f"google/{DEFAULT_MODEL}" if not DEFAULT_MODEL.startswith("google/") else DEFAULT_MODEL)
 MODEL_PRICES_CACHE = {}
 
 MODES = {
@@ -128,6 +131,22 @@ MODES = {
             "4. Çıktıyı doğrudan ham markdown formatında üret. Çıktının başına veya sonuna ```markdown veya ``` gibi kod bloğu işaretçileri koyma.\n"
             "5. Vurgular için sadece `**kalın**` veya `*italik*` kullan (kesinlikle `__`, `_` veya HTML etiketleri kullanma)."
         )
+    },
+    "master": {
+        "label": "🎯 Master Prompt",
+        "prompt": (
+            "Sen dünya çapında uzman bir Prompt Mühendisisin (Prompt Engineer). İletilen Türkçe ses kaydındaki konuyu, hedefleri, kapsamı ve detayları derinlemesine analiz et ve başka bir AI modelinin (GPT-4, Gemini, Claude vb.) bu konuyu en üst düzeyde icra edebilmesi için mükemmel, optimize edilmiş bir Master Prompt (Sistem İstemi) oluştur:\n"
+            "1. Kesinlikle dışarıdan bir giriş, açıklama veya ön söz/son söz ekleme (Örn: \"İşte hazırladığım master prompt:\" deme), doğrudan üretilen promptun kendisini markdown formatında ver.\n"
+            "2. Master Prompt yapısı tam olarak şu bölümleri içermelidir:\n"
+            "   - `# 🎯 Master Prompt: [Konu/Hedef Başlığı]`\n"
+            "   - `## 🎭 Rol ve Persona` (AI'ın üstleneceği uzmanlık rolü ve tonu)\n"
+            "   - `## 📋 Bağlam ve Amaç` (Ses kaydında anlatılan konunun ve hedefin net tanımı)\n"
+            "   - `## 🛠️ Temel Yönergeler` (Adım adım yapılması gerekenler ve kurallar)\n"
+            "   - `## 📥 Girdi Verisi Yapısı` (Girdi olarak verilecek verinin formatı/yer tutucuları `[GİRDİ_VERİSİ]`)\n"
+            "   - `## 📤 Çıktı Formatı ve Sınırlamalar` (Beklenen çıktının yapısı, kullanılacak format ve kaçınılacak şeyler)\n"
+            "3. Çıktıyı kopyalanıp doğrudan başka bir yapay zekaya verilebilecek nitelikte, son derece profesyonel, anlaşılır ve kapsayıcı bir Türkçe ile hazırla.\n"
+            "4. Çıktının başına veya sonuna ```markdown veya ``` gibi kod bloğu işaretçileri koyma."
+        )
     }
 }
 
@@ -187,11 +206,14 @@ def get_mode_keyboard():
         [
             InlineKeyboardButton(MODES["social"]["label"], callback_data="social"),
             InlineKeyboardButton(MODES["translate"]["label"], callback_data="translate")
+        ],
+        [
+            InlineKeyboardButton(MODES["master"]["label"], callback_data="master")
         ]
     ]
     return InlineKeyboardMarkup(buttons)
 
-async def process_voice(chat_id, file_id, mode="tldr", message_id=None, base_url=None):
+async def process_voice(chat_id, file_id, mode="tldr", message_id=None, base_url=None, force_provider=None):
     status_msg = None
     try:
         current_label = MODES[mode]["label"]
@@ -208,11 +230,103 @@ async def process_voice(chat_id, file_id, mode="tldr", message_id=None, base_url
             with open(file_path, "rb") as audio_file:
                 base64_audio = base64.b64encode(audio_file.read()).decode("utf-8")
 
-            # Fiyatları ve AI yanıtını paralel veya sırayla al (Zaman tasarrufu için fiyatı önden çekebiliriz)
-            pricing_task = asyncio.create_task(get_dynamic_pricing(TARGET_MODEL))
-
             current_time_str = datetime.now().strftime("%d %B %Y %A, Saat: %H:%M")
             system_prompt = MODES[mode]["prompt"] + f"\n\nNot: Bugünün tarihi: {current_time_str}. Göreceli zamanları (yarın, haftaya vb.) buna göre hesapla."
+
+            # 1. Google Provider Denemesi (Eğer zorla openrouter seçilmediyse ve GEMINI_API_KEY tanımlıysa)
+            if force_provider != "openrouter" and GEMINI_API_KEY:
+                try:
+                    await bot.edit_message_text(
+                        chat_id=chat_id,
+                        message_id=status_msg.message_id,
+                        text=f"🔄 {current_label} hazırlanıyor... (Google Free Tier)"
+                    )
+                    google_url = f"https://generativelanguage.googleapis.com/v1beta/models/{GOOGLE_MODEL}:generateContent?key={GEMINI_API_KEY}"
+                    google_payload = {
+                        "system_instruction": {
+                            "parts": [{"text": system_prompt}]
+                        },
+                        "contents": [
+                            {
+                                "parts": [
+                                    {"text": "İşle."},
+                                    {
+                                        "inline_data": {
+                                            "mime_type": "audio/ogg",
+                                            "data": base64_audio
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+
+                    async with httpx.AsyncClient(timeout=30.0) as client:
+                        g_resp = await client.post(google_url, json=google_payload)
+
+                    if g_resp.status_code != 200:
+                        raise Exception(f"HTTP {g_resp.status_code}: {g_resp.text[:100]}")
+
+                    g_data = g_resp.json()
+                    candidates = g_data.get("candidates", [])
+                    if not candidates or "content" not in candidates[0] or "parts" not in candidates[0]["content"]:
+                        raise Exception("Yanıtta geçerli içerik/part bulunamadı.")
+
+                    clean_text = candidates[0]["content"]["parts"][0]["text"]
+
+                    chunks = split_message(clean_text)
+                    if not chunks:
+                        chunks = ["İşlem tamamlandı."]
+
+                    copyable_text = f"<code>{html.escape(chunks[0])}</code>"
+                    keyboard = get_mode_keyboard()
+
+                    await bot.edit_message_text(
+                        chat_id=chat_id,
+                        message_id=status_msg.message_id,
+                        text=copyable_text,
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=keyboard
+                    )
+
+                    for c in chunks[1:]:
+                        await bot.send_message(chat_id=chat_id, text=f"<code>{html.escape(c)}</code>", parse_mode=ParseMode.HTML)
+
+                    cost_msg = (
+                        f"📊 <b>Kullanım Özeti:</b>\n"
+                        f"└ Servis: <b>Google Free Tier</b> (<code>$0.00000</code>)"
+                    )
+                    await bot.send_message(chat_id=chat_id, text=cost_msg, parse_mode=ParseMode.HTML)
+                    return
+
+                except Exception as g_err:
+                    logger.warning(f"Google Provider başarısız: {g_err}. Kullanıcıya OpenRouter onayı soruluyor.")
+                    err_short = html.escape(str(g_err)[:150])
+                    prompt_text = (
+                        f"⚠️ <b>Google Free Tier ile işlem yapılamadı!</b>\n"
+                        f"<i>Sebep: {err_short}</i>\n\n"
+                        f"Ücretli <b>OpenRouter ({html.escape(TARGET_MODEL)})</b> servisi üzerinden devam etmek istiyor musunuz?"
+                    )
+                    confirm_keyboard = InlineKeyboardMarkup([
+                        [InlineKeyboardButton("💳 Ücretli (OpenRouter) İle Çalıştır", callback_data=f"paid:{mode}")],
+                        [InlineKeyboardButton("❌ İptal Et", callback_data="cancel_paid")]
+                    ])
+                    await bot.edit_message_text(
+                        chat_id=chat_id,
+                        message_id=status_msg.message_id,
+                        text=prompt_text,
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=confirm_keyboard
+                    )
+                    return
+
+            # 2. OpenRouter Provider (Google kapalıysa, yoksa veya zorlanmışsa)
+            await bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=status_msg.message_id,
+                text=f"🔄 {current_label} hazırlanıyor... (OpenRouter)"
+            )
+            pricing_task = asyncio.create_task(get_dynamic_pricing(TARGET_MODEL))
 
             payload = {
                 "model": TARGET_MODEL,
@@ -236,15 +350,14 @@ async def process_voice(chat_id, file_id, mode="tldr", message_id=None, base_url
                 )
 
             if response.status_code != 200:
-                raise Exception(f"API Hatası: {response.status_code}")
+                raise Exception(f"OpenRouter API Hatası: {response.status_code}")
 
             res_data = response.json()
             res_text = res_data["choices"][0]["message"]["content"]
             usage = res_data.get("usage", {})
-            
-            # Dinamik fiyatları al
+
             current_prices = await pricing_task
-            
+
             prompt_tokens = usage.get("prompt_tokens", 0)
             completion_tokens = usage.get("completion_tokens", 0)
             total_cost = (prompt_tokens * current_prices["prompt"]) + (completion_tokens * current_prices["completion"])
@@ -254,14 +367,13 @@ async def process_voice(chat_id, file_id, mode="tldr", message_id=None, base_url
             chunks = split_message(clean_text)
             if not chunks:
                 chunks = ["İşlem tamamlandı."]
-            
+
             copyable_text = f"<code>{html.escape(chunks[0])}</code>"
-            
             keyboard = get_mode_keyboard()
 
             await bot.edit_message_text(
-                chat_id=chat_id, 
-                message_id=status_msg.message_id, 
+                chat_id=chat_id,
+                message_id=status_msg.message_id,
                 text=copyable_text,
                 parse_mode=ParseMode.HTML,
                 reply_markup=keyboard
@@ -272,6 +384,7 @@ async def process_voice(chat_id, file_id, mode="tldr", message_id=None, base_url
 
             cost_msg = (
                 f"📊 <b>Kullanım Özeti:</b>\n"
+                f"├ Servis: <b>OpenRouter</b>\n"
                 f"├ Token: {prompt_tokens + completion_tokens} (P: {prompt_tokens}, C: {completion_tokens})\n"
                 f"└ Maliyet: <code>${total_cost:.5f}</code>"
             )
@@ -321,12 +434,35 @@ async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: st
             query = update.callback_query
             await query.answer()
             
-            mode = query.data
+            callback_data = query.data
+
+            if callback_data == "cancel_paid":
+                await bot.edit_message_text(
+                    chat_id=query.message.chat.id,
+                    message_id=query.message.message_id,
+                    text="❌ İşlem iptal edildi."
+                )
+                return {"status": "ok"}
+
+            force_provider = None
+            if callback_data.startswith("paid:"):
+                mode = callback_data.split(":")[1]
+                force_provider = "openrouter"
+            else:
+                mode = callback_data
+
             voice_msg = query.message.reply_to_message
             
             if voice_msg and voice_msg.voice:
                 base_url = str(request.base_url)
-                await process_voice(query.message.chat.id, voice_msg.voice.file_id, mode=mode, message_id=query.message.message_id, base_url=base_url)
+                await process_voice(
+                    query.message.chat.id,
+                    voice_msg.voice.file_id,
+                    mode=mode,
+                    message_id=query.message.message_id,
+                    base_url=base_url,
+                    force_provider=force_provider
+                )
             else:
                 await bot.edit_message_text(
                     chat_id=query.message.chat.id,

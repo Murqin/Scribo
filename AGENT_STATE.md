@@ -18,8 +18,10 @@ Improve bot prompts, add Obsidian note mode, add Blog mode, disable API document
 - 2026-07-19 12:33 - Renamed the project to "Scribo" and updated README.md accordingly.
 - 2026-07-19 13:06 - Integrated "Fikir Geliştir" (brainstorm), "Sosyal Medya" (social), and "İngilizce Çeviri" (translate) modes, including balanced keyboard layout and Obsidian export support.
 - 2026-07-19 13:10 - Removed "Obsidian'a Aktar" button and the redirect endpoint completely.
-- 2026-07-19 13:57 - Cleaned up all temporary testing files and configured a whitelist-only .gitignore strategy.
+- 2026-07-21 17:28 - Implemented Google Free Tier API provider as primary strategy with interactive Telegram prompt fallback to paid OpenRouter service.
+- 2026-07-21 17:30 - Migrated default models to Gemini 3.6 Flash (`google/gemini-3.6-flash` and `gemini-3.6-flash`) for lower latency and costs.
 ## 3. Next Steps
 - Push changes to remote.
 ## 4. Known Issues & Roadblocks
 - None.
+

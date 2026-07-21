@@ -13,3 +13,5 @@
 !AGENT_STATE.md
 !api/index.py
 !assets/mascot.jpg
+!setup_keepalive.sh
+!main.py
