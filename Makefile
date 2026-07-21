@@ -15,8 +15,8 @@ release: build-linux-amd64 build-linux-arm64
 	rm -rf dist && mkdir -p dist/scribo-linux-amd64 dist/scribo-linux-arm64
 	cp scribo-linux-amd64 dist/scribo-linux-amd64/scribo
 	cp scribo-linux-arm64 dist/scribo-linux-arm64/scribo
-	cp modes.example.json setup_service.sh README.md .env.example dist/scribo-linux-amd64/
-	cp modes.example.json setup_service.sh README.md .env.example dist/scribo-linux-arm64/
+	cp modes.example.json setup_service.sh README.md .env.example LICENSE dist/scribo-linux-amd64/
+	cp modes.example.json setup_service.sh README.md .env.example LICENSE dist/scribo-linux-arm64/
 	tar -czvf dist/scribo-linux-amd64.tar.gz -C dist/scribo-linux-amd64 .
 	tar -czvf dist/scribo-linux-arm64.tar.gz -C dist/scribo-linux-arm64 .
 	@echo "✅ Hazır yayın paketleri dist/ klasöründe oluşturuldu!"
