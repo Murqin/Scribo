@@ -9,7 +9,7 @@ SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 
 if [ ! -f "${WORKING_DIR}/scribo" ]; then
     echo "⚙️ Executable bulunamadı, proje derleniyor..."
-    make build || go build -o scribo main.go
+    make build || go build -ldflags "-s -w" -o scribo main.go
 fi
 
 if [ ! -f "${WORKING_DIR}/.env" ]; then
@@ -34,6 +34,10 @@ ExecStart=${WORKING_DIR}/scribo
 Restart=always
 RestartSec=5
 EnvironmentFile=-${WORKING_DIR}/.env
+ProtectSystem=full
+PrivateTmp=yes
+NoNewPrivileges=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 
 [Install]
 WantedBy=multi-user.target

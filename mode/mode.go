@@ -157,25 +157,38 @@ var Modes = map[string]ModeInfo{
 }
 
 func GetModeKeyboard() tgbotapi.InlineKeyboardMarkup {
-	return tgbotapi.NewInlineKeyboardMarkup(
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData(Modes["tldr"].Label, "tldr"),
-			tgbotapi.NewInlineKeyboardButtonData(Modes["trans"].Label, "trans"),
-		),
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData(Modes["fix"].Label, "fix"),
-			tgbotapi.NewInlineKeyboardButtonData(Modes["note"].Label, "note"),
-		),
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData(Modes["blog"].Label, "blog"),
-			tgbotapi.NewInlineKeyboardButtonData(Modes["brainstorm"].Label, "brainstorm"),
-		),
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData(Modes["social"].Label, "social"),
-			tgbotapi.NewInlineKeyboardButtonData(Modes["translate"].Label, "translate"),
-		),
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData(Modes["master"].Label, "master"),
-		),
-	)
+	order := []string{"tldr", "trans", "fix", "note", "blog", "brainstorm", "social", "translate", "master"}
+	visited := make(map[string]bool)
+	var modeList []ModeInfo
+
+	for _, id := range order {
+		if m, ok := Modes[id]; ok {
+			modeList = append(modeList, m)
+			visited[id] = true
+		}
+	}
+
+	for id, m := range Modes {
+		if !visited[id] {
+			m.ID = id
+			modeList = append(modeList, m)
+		}
+	}
+
+	var rows [][]tgbotapi.InlineKeyboardButton
+	var currentRow []tgbotapi.InlineKeyboardButton
+
+	for _, m := range modeList {
+		btn := tgbotapi.NewInlineKeyboardButtonData(m.Label, m.ID)
+		currentRow = append(currentRow, btn)
+		if len(currentRow) == 2 {
+			rows = append(rows, currentRow)
+			currentRow = nil
+		}
+	}
+	if len(currentRow) > 0 {
+		rows = append(rows, currentRow)
+	}
+
+	return tgbotapi.InlineKeyboardMarkup{InlineKeyboard: rows}
 }

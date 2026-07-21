@@ -2,6 +2,7 @@ package config
 
 import (
 	"bufio"
+	"fmt"
 	"os"
 	"strings"
 )
@@ -39,6 +40,16 @@ func LoadConfig() *Config {
 		OpenRouterModel:  openRouterModel,
 		DefaultProvider:  defaultProvider,
 	}
+}
+
+func (c *Config) Validate() error {
+	if c.TelegramToken == "" {
+		return fmt.Errorf("TELEGRAM_TOKEN zorunludur ancak tanımlı değil")
+	}
+	if c.GeminiAPIKey == "" && c.OpenRouterAPIKey == "" {
+		return fmt.Errorf("En az bir AI API anahtarı (GEMINI_API_KEY veya OPENROUTER_API_KEY) tanımlanmalıdır")
+	}
+	return nil
 }
 
 func getEnv(key, fallback string) string {

@@ -1,12 +1,14 @@
 package bot
 
 import (
+	"context"
 	"encoding/base64"
 	"fmt"
 	"html"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -18,13 +20,15 @@ import (
 )
 
 type BotRunner struct {
-	cfg *config.Config
-	api *tgbotapi.BotAPI
+	cfg            *config.Config
+	api            *tgbotapi.BotAPI
+	googleProvider provider.AIProvider
+	openRouterProvider provider.AIProvider
 }
 
 func NewBotRunner(cfg *config.Config) (*BotRunner, error) {
-	if cfg.TelegramToken == "" {
-		return nil, fmt.Errorf("TELEGRAM_TOKEN tanımlı değil")
+	if err := cfg.Validate(); err != nil {
+		return nil, err
 	}
 
 	bot, err := tgbotapi.NewBotAPI(cfg.TelegramToken)
@@ -32,24 +36,38 @@ func NewBotRunner(cfg *config.Config) (*BotRunner, error) {
 		return nil, err
 	}
 
-	log.Printf("🤖 Telegram Bot yetkilendirildi: @%s", bot.Self.UserName)
-	return &BotRunner{cfg: cfg, api: bot}, nil
+	slog.Info("🤖 Telegram Bot yetkilendirildi", "username", bot.Self.UserName)
+
+	return &BotRunner{
+		cfg:                cfg,
+		api:                bot,
+		googleProvider:     provider.NewGoogleProvider(cfg.GeminiAPIKey, cfg.GoogleModel),
+		openRouterProvider: provider.NewOpenRouterProvider(cfg.OpenRouterAPIKey, cfg.OpenRouterModel),
+	}, nil
 }
 
-func (b *BotRunner) StartPolling() error {
+func (b *BotRunner) StartPolling(ctx context.Context) error {
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 60
 
 	updates := b.api.GetUpdatesChan(u)
 
-	for update := range updates {
-		if update.Message != nil {
-			b.handleMessage(update.Message)
-		} else if update.CallbackQuery != nil {
-			b.handleCallbackQuery(update.CallbackQuery)
+	for {
+		select {
+		case <-ctx.Done():
+			slog.Info("🛑 Polling durduruluyor...")
+			return nil
+		case update, ok := <-updates:
+			if !ok {
+				return nil
+			}
+			if update.Message != nil {
+				b.handleMessage(ctx, update.Message)
+			} else if update.CallbackQuery != nil {
+				b.handleCallbackQuery(ctx, update.CallbackQuery)
+			}
 		}
 	}
-	return nil
 }
 
 func (b *BotRunner) isAuthorized(userID int64) bool {
@@ -59,24 +77,74 @@ func (b *BotRunner) isAuthorized(userID int64) bool {
 	return fmt.Sprintf("%d", userID) == b.cfg.AllowedUserID
 }
 
-func (b *BotRunner) handleMessage(msg *tgbotapi.Message) {
+type AudioTarget struct {
+	FileID   string
+	FileSize int
+	Duration int
+	Name     string
+}
+
+func extractAudioTarget(msg *tgbotapi.Message) *AudioTarget {
+	if msg.Voice != nil {
+		return &AudioTarget{
+			FileID:   msg.Voice.FileID,
+			FileSize: msg.Voice.FileSize,
+			Duration: msg.Voice.Duration,
+			Name:     "Ses Kaydı",
+		}
+	}
+	if msg.Audio != nil {
+		return &AudioTarget{
+			FileID:   msg.Audio.FileID,
+			FileSize: msg.Audio.FileSize,
+			Duration: msg.Audio.Duration,
+			Name:     msg.Audio.FileName,
+		}
+	}
+	if msg.Document != nil {
+		ext := strings.ToLower(filepath.Ext(msg.Document.FileName))
+		switch ext {
+		case ".ogg", ".mp3", ".m4a", ".wav", ".aac", ".flac", ".opus":
+			return &AudioTarget{
+				FileID:   msg.Document.FileID,
+				FileSize: msg.Document.FileSize,
+				Duration: 0,
+				Name:     msg.Document.FileName,
+			}
+		}
+	}
+	return nil
+}
+
+func (b *BotRunner) handleMessage(ctx context.Context, msg *tgbotapi.Message) {
 	if !b.isAuthorized(msg.From.ID) {
 		return
 	}
 
 	if msg.IsCommand() && msg.Command() == "start" {
-		reply := tgbotapi.NewMessage(msg.Chat.ID, "🎙️ Scribo Bot hazır! Bir ses kaydı gönderin.")
+		reply := tgbotapi.NewMessage(msg.Chat.ID, "🎙️ <b>Scribo Bot Hazır!</b>\nBir ses kaydı, MP3 veya ses dosyası gönderin.")
+		reply.ParseMode = tgbotapi.ModeHTML
 		b.api.Send(reply)
 		return
 	}
 
-	if msg.Voice != nil {
-		warningText := ""
-		if msg.Voice.Duration > 90 {
-			warningText = fmt.Sprintf("\n\n⚠️ <b>Uyarı:</b> Ses kaydı uzun (%d sn).", msg.Voice.Duration)
+	audioTarget := extractAudioTarget(msg)
+	if audioTarget != nil {
+		// Check 20 MB Telegram bot limit
+		if audioTarget.FileSize > 20*1024*1024 {
+			reply := tgbotapi.NewMessage(msg.Chat.ID, "⚠️ <b>Hata:</b> Dosya boyutu çok büyük (Maksimum Telegram bot limiti: 20 MB).")
+			reply.ParseMode = tgbotapi.ModeHTML
+			reply.ReplyToMessageID = msg.MessageID
+			b.api.Send(reply)
+			return
 		}
 
-		replyText := fmt.Sprintf("🚀 Ses kaydı alındı! Seçiniz:%s", warningText)
+		warningText := ""
+		if audioTarget.Duration > 90 {
+			warningText = fmt.Sprintf("\n\n⚠️ <b>Uyarı:</b> Ses kaydı uzun (%d sn). Processing biraz zaman alabilir.", audioTarget.Duration)
+		}
+
+		replyText := fmt.Sprintf("🚀 <b>%s</b> alındı! Bir işlem modu seçiniz:%s", html.EscapeString(audioTarget.Name), warningText)
 		reply := tgbotapi.NewMessage(msg.Chat.ID, replyText)
 		reply.ParseMode = tgbotapi.ModeHTML
 		reply.ReplyToMessageID = msg.MessageID
@@ -86,7 +154,7 @@ func (b *BotRunner) handleMessage(msg *tgbotapi.Message) {
 	}
 }
 
-func (b *BotRunner) handleCallbackQuery(cb *tgbotapi.CallbackQuery) {
+func (b *BotRunner) handleCallbackQuery(ctx context.Context, cb *tgbotapi.CallbackQuery) {
 	if !b.isAuthorized(cb.From.ID) {
 		callbackCfg := tgbotapi.NewCallback(cb.ID, "Yetkisiz kullanıcı.")
 		callbackCfg.ShowAlert = true
@@ -94,11 +162,9 @@ func (b *BotRunner) handleCallbackQuery(cb *tgbotapi.CallbackQuery) {
 		return
 	}
 
-	callbackCfg := tgbotapi.NewCallback(cb.ID, "")
-	b.api.Request(callbackCfg)
+	b.api.Request(tgbotapi.NewCallback(cb.ID, ""))
 
 	data := cb.Data
-
 	if data == "cancel_paid" {
 		editMsg := tgbotapi.NewEditMessageText(cb.Message.Chat.ID, cb.Message.MessageID, "❌ İşlem iptal edildi.")
 		b.api.Send(editMsg)
@@ -113,36 +179,68 @@ func (b *BotRunner) handleCallbackQuery(cb *tgbotapi.CallbackQuery) {
 		forceProvider = "openrouter"
 	}
 
-	var voiceMsg *tgbotapi.Message
-	if cb.Message.ReplyToMessage != nil && cb.Message.ReplyToMessage.Voice != nil {
-		voiceMsg = cb.Message.ReplyToMessage
+	var audioMsg *tgbotapi.Message
+	if cb.Message.ReplyToMessage != nil {
+		audioMsg = cb.Message.ReplyToMessage
 	}
 
-	if voiceMsg == nil {
+	audioTarget := extractAudioTarget(audioMsg)
+	if audioTarget == nil {
 		editMsg := tgbotapi.NewEditMessageText(cb.Message.Chat.ID, cb.Message.MessageID, "❌ Kaynak ses dosyası bulunamadı.")
 		b.api.Send(editMsg)
 		return
 	}
 
-	go b.processVoice(cb.Message.Chat.ID, voiceMsg.Voice.FileID, targetMode, cb.Message.MessageID, forceProvider)
+	go b.processVoice(ctx, cb.Message.Chat.ID, audioTarget.FileID, targetMode, cb.Message.MessageID, forceProvider)
 }
 
-func (b *BotRunner) processVoice(chatID int64, fileID string, modeID string, statusMsgID int, forceProvider string) {
+func (b *BotRunner) sendTypingAction(ctx context.Context, chatID int64) func() {
+	stopChan := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(4 * time.Second)
+		defer ticker.Stop()
+		b.api.Send(tgbotapi.NewChatAction(chatID, tgbotapi.ChatTyping))
+		for {
+			select {
+			case <-ticker.C:
+				b.api.Send(tgbotapi.NewChatAction(chatID, tgbotapi.ChatTyping))
+			case <-stopChan:
+				return
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	return func() {
+		close(stopChan)
+	}
+}
+
+func (b *BotRunner) processVoice(ctx context.Context, chatID int64, fileID string, modeID string, statusMsgID int, forceProvider string) {
+	stopTyping := b.sendTypingAction(ctx, chatID)
+	defer stopTyping()
+
 	modeInfo, ok := mode.Modes[modeID]
 	if !ok {
 		modeInfo = mode.Modes["tldr"]
 	}
 
-	editMsg := tgbotapi.NewEditMessageText(chatID, statusMsgID, fmt.Sprintf("🔄 %s hazırlanıyor...", modeInfo.Label))
-	b.api.Send(editMsg)
+	b.api.Send(tgbotapi.NewEditMessageText(chatID, statusMsgID, fmt.Sprintf("🔄 <b>%s</b> hazırlanıyor...", modeInfo.Label)))
 
 	fileURL, err := b.api.GetFileDirectURL(fileID)
 	if err != nil {
-		b.sendError(chatID, statusMsgID, modeID, fmt.Sprintf("Ses dosyası alınamadı: %v", err))
+		b.sendError(chatID, statusMsgID, modeID, fmt.Sprintf("Ses dosyası URL'si alınamadı: %v", err))
 		return
 	}
 
-	resp, err := http.Get(fileURL)
+	req, err := http.NewRequestWithContext(ctx, "GET", fileURL, nil)
+	if err != nil {
+		b.sendError(chatID, statusMsgID, modeID, fmt.Sprintf("İstek oluşturulamadı: %v", err))
+		return
+	}
+
+	client := &http.Client{Timeout: 60 * time.Second}
+	resp, err := client.Do(req)
 	if err != nil {
 		b.sendError(chatID, statusMsgID, modeID, fmt.Sprintf("Ses dosyası indirilemedi: %v", err))
 		return
@@ -166,18 +264,18 @@ func (b *BotRunner) processVoice(chatID int64, fileID string, modeID string, sta
 
 	// 1. Google Provider Try
 	if selectedProvider != "openrouter" && b.cfg.GeminiAPIKey != "" {
-		b.api.Send(tgbotapi.NewEditMessageText(chatID, statusMsgID, fmt.Sprintf("🔄 %s hazırlanıyor... (Google Free Tier)", modeInfo.Label)))
+		b.api.Send(tgbotapi.NewEditMessageText(chatID, statusMsgID, fmt.Sprintf("🔄 <b>%s</b> hazırlanıyor... (Google Free Tier)", modeInfo.Label)))
 
-		resText, gErr := provider.CallGoogleAPI(b.cfg.GeminiAPIKey, b.cfg.GoogleModel, systemPrompt, base64Audio)
+		res, gErr := b.googleProvider.Generate(ctx, systemPrompt, base64Audio)
 		if gErr == nil {
-			b.sendSuccessResponse(chatID, statusMsgID, resText, "<b>Google Free Tier</b> (<code>$0.00000</code>)")
+			b.sendSuccessResponse(chatID, statusMsgID, res.Text, "<b>Google Free Tier</b> (<code>$0.00000</code>)")
 			return
 		}
 
-		log.Printf("Google API başarısız: %v. OpenRouter onayı soruluyor.", gErr)
+		slog.Warn("Google API başarısız, OpenRouter onayı soruluyor", "error", gErr)
 		errShort := html.EscapeString(gErr.Error())
-		if len(errShort) > 150 {
-			errShort = errShort[:150]
+		if len(errShort) > 200 {
+			errShort = errShort[:200] + "..."
 		}
 
 		promptText := fmt.Sprintf(
@@ -202,9 +300,9 @@ func (b *BotRunner) processVoice(chatID int64, fileID string, modeID string, sta
 	}
 
 	// 2. OpenRouter Provider Try
-	b.api.Send(tgbotapi.NewEditMessageText(chatID, statusMsgID, fmt.Sprintf("🔄 %s hazırlanıyor... (OpenRouter)", modeInfo.Label)))
+	b.api.Send(tgbotapi.NewEditMessageText(chatID, statusMsgID, fmt.Sprintf("🔄 <b>%s</b> hazırlanıyor... (OpenRouter)", modeInfo.Label)))
 
-	res, err := provider.CallOpenRouterAPI(b.cfg.OpenRouterAPIKey, b.cfg.OpenRouterModel, systemPrompt, base64Audio)
+	res, err := b.openRouterProvider.Generate(ctx, systemPrompt, base64Audio)
 	if err != nil {
 		b.sendError(chatID, statusMsgID, modeID, fmt.Sprintf("OpenRouter Hatası: %v", err))
 		return
@@ -217,23 +315,32 @@ func (b *BotRunner) processVoice(chatID int64, fileID string, modeID string, sta
 }
 
 func (b *BotRunner) sendSuccessResponse(chatID int64, statusMsgID int, cleanText string, costDetail string) {
-	chunks := splitMessage(cleanText, 4000)
+	chunks := splitMessage(cleanText, 3900)
 	if len(chunks) == 0 {
 		chunks = []string{"İşlem tamamlandı."}
 	}
 
-	copyableText := fmt.Sprintf("<code>%s</code>", html.EscapeString(chunks[0]))
+	firstChunkText := chunks[0]
 	kb := mode.GetModeKeyboard()
 
-	editMsg := tgbotapi.NewEditMessageText(chatID, statusMsgID, copyableText)
+	editMsg := tgbotapi.NewEditMessageText(chatID, statusMsgID, firstChunkText)
 	editMsg.ParseMode = tgbotapi.ModeHTML
 	editMsg.ReplyMarkup = &kb
-	b.api.Send(editMsg)
+	_, err := b.api.Send(editMsg)
+	if err != nil {
+		// Fallback to plain text if HTML parsing fails
+		editMsg.ParseMode = ""
+		b.api.Send(editMsg)
+	}
 
 	for _, c := range chunks[1:] {
-		msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("<code>%s</code>", html.EscapeString(c)))
+		msg := tgbotapi.NewMessage(chatID, c)
 		msg.ParseMode = tgbotapi.ModeHTML
-		b.api.Send(msg)
+		_, err := b.api.Send(msg)
+		if err != nil {
+			msg.ParseMode = ""
+			b.api.Send(msg)
+		}
 	}
 
 	costMsgText := fmt.Sprintf("📊 <b>Kullanım Özeti:</b>\n└ Servis: %s", costDetail)
@@ -243,10 +350,8 @@ func (b *BotRunner) sendSuccessResponse(chatID int64, statusMsgID int, cleanText
 }
 
 func (b *BotRunner) sendError(chatID int64, statusMsgID int, modeID string, errText string) {
-	if len(errText) > 50 {
-		errText = errText[:50]
-	}
-	txt := fmt.Sprintf("❌ Hata: %s", errText)
+	slog.Error("İşlem hatası", "chatID", chatID, "error", errText)
+	txt := fmt.Sprintf("❌ <b>İşlem Hatası:</b>\n<pre>%s</pre>", html.EscapeString(errText))
 	retryKb := tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("🔄 Tekrar Dene", modeID),
@@ -254,6 +359,7 @@ func (b *BotRunner) sendError(chatID int64, statusMsgID int, modeID string, errT
 	)
 
 	editMsg := tgbotapi.NewEditMessageText(chatID, statusMsgID, txt)
+	editMsg.ParseMode = tgbotapi.ModeHTML
 	editMsg.ReplyMarkup = &retryKb
 	b.api.Send(editMsg)
 }

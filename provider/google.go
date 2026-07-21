@@ -2,6 +2,7 @@ package provider
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -41,12 +42,25 @@ type GoogleResponse struct {
 	Candidates []GoogleCandidate `json:"candidates"`
 }
 
-func CallGoogleAPI(apiKey, model, systemPrompt, base64Audio string) (string, error) {
-	if apiKey == "" {
-		return "", fmt.Errorf("Google API key bulunamadı")
+type GoogleProvider struct {
+	APIKey string
+	Model  string
+}
+
+func NewGoogleProvider(apiKey, model string) *GoogleProvider {
+	return &GoogleProvider{APIKey: apiKey, Model: model}
+}
+
+func (p *GoogleProvider) Name() string {
+	return "Google Free Tier"
+}
+
+func (p *GoogleProvider) Generate(ctx context.Context, systemPrompt, audioBase64 string) (*AIResult, error) {
+	if p.APIKey == "" {
+		return nil, fmt.Errorf("Google API key bulunamadı")
 	}
 
-	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s", model, apiKey)
+	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s", p.Model, p.APIKey)
 
 	reqBody := GoogleRequest{
 		SystemInstruction: GoogleSystemInstruction{
@@ -61,7 +75,7 @@ func CallGoogleAPI(apiKey, model, systemPrompt, base64Audio string) (string, err
 					{
 						InlineData: &GooglePartInlineData{
 							MimeType: "audio/ogg",
-							Data:     base64Audio,
+							Data:     audioBase64,
 						},
 					},
 				},
@@ -71,33 +85,51 @@ func CallGoogleAPI(apiKey, model, systemPrompt, base64Audio string) (string, err
 
 	jsonData, err := json.Marshal(reqBody)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
-	client := &http.Client{Timeout: 35 * time.Second}
-	resp, err := client.Post(url, "application/json", bytes.NewBuffer(jsonData))
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
 	if err != nil {
-		return "", err
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 45 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
 	}
 
 	var resData GoogleResponse
 	if err := json.Unmarshal(body, &resData); err != nil {
-		return "", err
+		return nil, err
 	}
 
 	if len(resData.Candidates) == 0 || len(resData.Candidates[0].Content.Parts) == 0 {
-		return "", fmt.Errorf("Yanıtta geçerli içerik/part bulunamadı")
+		return nil, fmt.Errorf("Yanıtta geçerli içerik/part bulunamadı")
 	}
 
-	return resData.Candidates[0].Content.Parts[0].Text, nil
+	return &AIResult{
+		Text:      resData.Candidates[0].Content.Parts[0].Text,
+		TotalCost: 0.0,
+	}, nil
+}
+
+func CallGoogleAPI(apiKey, model, systemPrompt, base64Audio string) (string, error) {
+	p := NewGoogleProvider(apiKey, model)
+	res, err := p.Generate(context.Background(), systemPrompt, base64Audio)
+	if err != nil {
+		return "", err
+	}
+	return res.Text, nil
 }

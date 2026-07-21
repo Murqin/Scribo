@@ -2,6 +2,7 @@ package provider
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -20,7 +21,7 @@ var (
 	cacheMutex  sync.RWMutex
 )
 
-func GetDynamicPricing(modelID string) Pricing {
+func GetDynamicPricing(ctx context.Context, modelID string) Pricing {
 	cacheMutex.RLock()
 	if p, ok := pricesCache[modelID]; ok {
 		cacheMutex.RUnlock()
@@ -28,31 +29,33 @@ func GetDynamicPricing(modelID string) Pricing {
 	}
 	cacheMutex.RUnlock()
 
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Get("https://openrouter.ai/api/v1/models")
-	if err == nil && resp.StatusCode == http.StatusOK {
-		defer resp.Body.Close()
-		body, _ := io.ReadAll(resp.Body)
-		var result struct {
-			Data []struct {
-				ID      string  `json:"id"`
-				Pricing Pricing `json:"pricing"`
-			} `json:"data"`
-		}
-		if json.Unmarshal(body, &result) == nil {
-			for _, m := range result.Data {
-				if m.ID == modelID {
-					cacheMutex.Lock()
-					pricesCache[modelID] = m.Pricing
-					cacheMutex.Unlock()
-					return m.Pricing
+	req, err := http.NewRequestWithContext(ctx, "GET", "https://openrouter.ai/api/v1/models", nil)
+	if err == nil {
+		client := &http.Client{Timeout: 10 * time.Second}
+		resp, err := client.Do(req)
+		if err == nil && resp.StatusCode == http.StatusOK {
+			defer resp.Body.Close()
+			body, _ := io.ReadAll(resp.Body)
+			var result struct {
+				Data []struct {
+					ID      string  `json:"id"`
+					Pricing Pricing `json:"pricing"`
+				} `json:"data"`
+			}
+			if json.Unmarshal(body, &result) == nil {
+				for _, m := range result.Data {
+					if m.ID == modelID {
+						cacheMutex.Lock()
+						pricesCache[modelID] = m.Pricing
+						cacheMutex.Unlock()
+						return m.Pricing
+					}
 				}
 			}
 		}
 	}
 
-	fallback := Pricing{Prompt: 0.0000015, Completion: 0.000009}
-	return fallback
+	return Pricing{Prompt: 0.0000015, Completion: 0.000009}
 }
 
 type OpenRouterContentAudioItem struct {
@@ -89,27 +92,33 @@ type OpenRouterResponse struct {
 	} `json:"usage"`
 }
 
-type OpenRouterResult struct {
-	Text             string
-	PromptTokens     int
-	CompletionTokens int
-	TotalCost        float64
+type OpenRouterProvider struct {
+	APIKey string
+	Model  string
 }
 
-func CallOpenRouterAPI(apiKey, model, systemPrompt, base64Audio string) (*OpenRouterResult, error) {
-	if apiKey == "" {
+func NewOpenRouterProvider(apiKey, model string) *OpenRouterProvider {
+	return &OpenRouterProvider{APIKey: apiKey, Model: model}
+}
+
+func (p *OpenRouterProvider) Name() string {
+	return "OpenRouter API"
+}
+
+func (p *OpenRouterProvider) Generate(ctx context.Context, systemPrompt, audioBase64 string) (*AIResult, error) {
+	if p.APIKey == "" {
 		return nil, fmt.Errorf("OpenRouter API key bulunamadı")
 	}
 
 	priceChan := make(chan Pricing, 1)
 	go func() {
-		priceChan <- GetDynamicPricing(model)
+		priceChan <- GetDynamicPricing(ctx, p.Model)
 	}()
 
 	url := "https://openrouter.ai/api/v1/chat/completions"
 
 	reqBody := OpenRouterRequest{
-		Model: model,
+		Model: p.Model,
 		Messages: []OpenRouterMessage{
 			{
 				Role:    "system",
@@ -122,7 +131,7 @@ func CallOpenRouterAPI(apiKey, model, systemPrompt, base64Audio string) (*OpenRo
 					{
 						Type: "input_audio",
 						InputAudio: &OpenRouterContentAudioItem{
-							Data:   base64Audio,
+							Data:   audioBase64,
 							Format: "ogg",
 						},
 					},
@@ -136,15 +145,15 @@ func CallOpenRouterAPI(apiKey, model, systemPrompt, base64Audio string) (*OpenRo
 		return nil, err
 	}
 
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return nil, err
 	}
 
-	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("Authorization", "Bearer "+p.APIKey)
 	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{Timeout: 35 * time.Second}
+	client := &http.Client{Timeout: 45 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
@@ -174,10 +183,17 @@ func CallOpenRouterAPI(apiKey, model, systemPrompt, base64Audio string) (*OpenRo
 	cTokens := resData.Usage.CompletionTokens
 	cost := (float64(pTokens) * pricing.Prompt) + (float64(cTokens) * pricing.Completion)
 
-	return &OpenRouterResult{
+	return &AIResult{
 		Text:             resData.Choices[0].Message.Content,
 		PromptTokens:     pTokens,
 		CompletionTokens: cTokens,
 		TotalCost:        cost,
 	}, nil
+}
+
+type OpenRouterResult = AIResult
+
+func CallOpenRouterAPI(apiKey, model, systemPrompt, base64Audio string) (*AIResult, error) {
+	p := NewOpenRouterProvider(apiKey, model)
+	return p.Generate(context.Background(), systemPrompt, base64Audio)
 }

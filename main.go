@@ -1,7 +1,11 @@
 package main
 
 import (
-	"log"
+	"context"
+	"log/slog"
+	"os"
+	"os/signal"
+	"syscall"
 
 	"scribo/bot"
 	"scribo/config"
@@ -9,7 +13,13 @@ import (
 )
 
 func main() {
-	log.Println("🚀 Scribo Bot (Go/Golang) başlatılıyor...")
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	slog.SetDefault(logger)
+
+	slog.Info("🚀 Scribo Bot (Go/Golang) başlatılıyor...")
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
 	cfg := config.LoadConfig()
 
@@ -18,13 +28,20 @@ func main() {
 
 	runner, err := bot.NewBotRunner(cfg)
 	if err != nil {
-		log.Fatalf("❌ Bot başlatma hatası: %v", err)
+		slog.Error("❌ Bot başlatma hatası", "error", err)
+		os.Exit(1)
 	}
 
-	log.Printf("⚙️ Yapılandırma: Model=%s, GoogleModel=%s, OpenRouterModel=%s",
-		cfg.DefaultModel, cfg.GoogleModel, cfg.OpenRouterModel)
+	slog.Info("⚙️ Yapılandırma yüklendi",
+		"GoogleModel", cfg.GoogleModel,
+		"OpenRouterModel", cfg.OpenRouterModel,
+		"DefaultProvider", cfg.DefaultProvider,
+	)
 
-	if err := runner.StartPolling(); err != nil {
-		log.Fatalf("❌ Bot polling hatası: %v", err)
+	if err := runner.StartPolling(ctx); err != nil {
+		slog.Error("❌ Bot polling hatası", "error", err)
+		os.Exit(1)
 	}
+
+	slog.Info("👋 Scribo Bot temiz bir şekilde kapatıldı.")
 }
