@@ -225,7 +225,9 @@ func (b *BotRunner) processVoice(ctx context.Context, chatID int64, fileID strin
 		modeInfo = mode.Modes["tldr"]
 	}
 
-	b.api.Send(tgbotapi.NewEditMessageText(chatID, statusMsgID, fmt.Sprintf("🔄 <b>%s</b> hazırlanıyor...", modeInfo.Label)))
+	msg := tgbotapi.NewEditMessageText(chatID, statusMsgID, fmt.Sprintf("🔄 <b>%s</b> hazırlanıyor...", modeInfo.Label))
+	msg.ParseMode = tgbotapi.ModeHTML
+	b.api.Send(msg)
 
 	fileURL, err := b.api.GetFileDirectURL(fileID)
 	if err != nil {
@@ -264,7 +266,9 @@ func (b *BotRunner) processVoice(ctx context.Context, chatID int64, fileID strin
 
 	// 1. Google Provider Try
 	if selectedProvider != "openrouter" && b.cfg.GeminiAPIKey != "" {
-		b.api.Send(tgbotapi.NewEditMessageText(chatID, statusMsgID, fmt.Sprintf("🔄 <b>%s</b> hazırlanıyor... (Google Free Tier)", modeInfo.Label)))
+		gMsg := tgbotapi.NewEditMessageText(chatID, statusMsgID, fmt.Sprintf("🔄 <b>%s</b> hazırlanıyor... (Google Free Tier)", modeInfo.Label))
+		gMsg.ParseMode = tgbotapi.ModeHTML
+		b.api.Send(gMsg)
 
 		res, gErr := b.googleProvider.Generate(ctx, systemPrompt, base64Audio)
 		if gErr == nil {
@@ -300,7 +304,9 @@ func (b *BotRunner) processVoice(ctx context.Context, chatID int64, fileID strin
 	}
 
 	// 2. OpenRouter Provider Try
-	b.api.Send(tgbotapi.NewEditMessageText(chatID, statusMsgID, fmt.Sprintf("🔄 <b>%s</b> hazırlanıyor... (OpenRouter)", modeInfo.Label)))
+	orMsg := tgbotapi.NewEditMessageText(chatID, statusMsgID, fmt.Sprintf("🔄 <b>%s</b> hazırlanıyor... (OpenRouter)", modeInfo.Label))
+	orMsg.ParseMode = tgbotapi.ModeHTML
+	b.api.Send(orMsg)
 
 	res, err := b.openRouterProvider.Generate(ctx, systemPrompt, base64Audio)
 	if err != nil {
