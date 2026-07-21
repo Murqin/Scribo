@@ -2,11 +2,12 @@ package mode_test
 
 import (
 	"testing"
+
 	"scribo/mode"
 )
 
 func TestModesParity(t *testing.T) {
-	expectedModes := []string{"tldr", "trans", "fix", "note", "blog", "brainstorm", "social", "translate", "master"}
+	expectedModes := []string{"tldr", "trans", "fix"}
 
 	if len(mode.Modes) != len(expectedModes) {
 		t.Fatalf("Mod sayısı uyuşmuyor! Beklenen: %d, Alınan: %d", len(expectedModes), len(mode.Modes))
@@ -28,7 +29,7 @@ func TestModesParity(t *testing.T) {
 
 func TestLoadCustomModes(t *testing.T) {
 	mode.LoadCustomModes("../modes.example.json")
-	if mode.Modes["master"].Label != "🎯 Master Prompt" {
-		t.Errorf("Master Prompt label uyuşmuyor: %s", mode.Modes["master"].Label)
+	if mode.Modes["tldr"].Label != "📝 Özet" {
+		t.Errorf("Özet label uyuşmuyor: %s", mode.Modes["tldr"].Label)
 	}
 }
