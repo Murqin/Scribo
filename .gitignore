@@ -11,5 +11,5 @@ modes.json
 .DS_Store
 *.log
 
-# Large media files (too big for git)
-assets/demo-preview.gif
+# Large raw screencast files
+*.webm
