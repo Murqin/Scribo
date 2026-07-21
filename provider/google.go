@@ -43,17 +43,23 @@ type GoogleResponse struct {
 }
 
 type GoogleProvider struct {
-	APIKey string
-	Model  string
-	client *http.Client
+	APIKey  string
+	Model   string
+	BaseURL string
+	client  *http.Client
 }
 
 func NewGoogleProvider(apiKey, model string) *GoogleProvider {
 	return &GoogleProvider{
-		APIKey: apiKey,
-		Model:  model,
-		client: &http.Client{Timeout: 60 * time.Second},
+		APIKey:  apiKey,
+		Model:   model,
+		BaseURL: "https://generativelanguage.googleapis.com",
+		client:  &http.Client{Timeout: 60 * time.Second},
 	}
+}
+
+func (p *GoogleProvider) SetHTTPClient(c *http.Client) {
+	p.client = c
 }
 
 func (p *GoogleProvider) Name() string {
@@ -65,7 +71,11 @@ func (p *GoogleProvider) Generate(ctx context.Context, systemPrompt, audioBase64
 		return nil, fmt.Errorf("Google API key bulunamadı")
 	}
 
-	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s", p.Model, p.APIKey)
+	baseURL := p.BaseURL
+	if baseURL == "" {
+		baseURL = "https://generativelanguage.googleapis.com"
+	}
+	url := fmt.Sprintf("%s/v1beta/models/%s:generateContent?key=%s", baseURL, p.Model, p.APIKey)
 
 	reqBody := GoogleRequest{
 		SystemInstruction: GoogleSystemInstruction{
@@ -93,40 +103,63 @@ func (p *GoogleProvider) Generate(ctx context.Context, systemPrompt, audioBase64
 		return nil, err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/json")
+	maxRetries := 2
+	backoff := 500 * time.Millisecond
 
-	resp, err := p.client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
+	var lastErr error
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(backoff):
+				backoff *= 2
+			}
+		}
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
+		req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := p.client.Do(req)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			lastErr = err
+			continue
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			lastErr = fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
+			if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
+				continue
+			}
+			return nil, lastErr
+		}
+
+		var resData GoogleResponse
+		if err := json.Unmarshal(body, &resData); err != nil {
+			return nil, err
+		}
+
+		if len(resData.Candidates) == 0 || len(resData.Candidates[0].Content.Parts) == 0 {
+			return nil, fmt.Errorf("Yanıtta geçerli içerik/part bulunamadı")
+		}
+
+		return &AIResult{
+			Text:      resData.Candidates[0].Content.Parts[0].Text,
+			TotalCost: 0.0,
+		}, nil
 	}
 
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
-	}
-
-	var resData GoogleResponse
-	if err := json.Unmarshal(body, &resData); err != nil {
-		return nil, err
-	}
-
-	if len(resData.Candidates) == 0 || len(resData.Candidates[0].Content.Parts) == 0 {
-		return nil, fmt.Errorf("Yanıtta geçerli içerik/part bulunamadı")
-	}
-
-	return &AIResult{
-		Text:      resData.Candidates[0].Content.Parts[0].Text,
-		TotalCost: 0.0,
-	}, nil
+	return nil, lastErr
 }
 
 func CallGoogleAPI(apiKey, model, systemPrompt, base64Audio, mimeType string) (string, error) {

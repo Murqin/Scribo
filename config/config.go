@@ -8,14 +8,15 @@ import (
 )
 
 type Config struct {
-	TelegramToken    string
-	OpenRouterAPIKey string
-	GeminiAPIKey     string
-	AllowedUserID    string
-	DefaultModel     string
-	GoogleModel      string
-	OpenRouterModel  string
-	DefaultProvider  string
+	TelegramToken     string
+	OpenRouterAPIKey  string
+	GeminiAPIKey      string
+	AllowedUserID     string
+	DefaultModel      string
+	GoogleModel       string
+	OpenRouterModel   string
+	DefaultProvider   string
+	MaxConcurrentJobs int
 }
 
 func LoadConfig() *Config {
@@ -28,15 +29,23 @@ func LoadConfig() *Config {
 	geminiKey := getEnv("GEMINI_API_KEY", getEnv("GOOGLE_API_KEY", ""))
 	defaultProvider := strings.ToLower(getEnv("DEFAULT_PROVIDER", getEnv("PROVIDER", "google")))
 
+	maxJobs := 5
+	if val := getEnv("MAX_CONCURRENT_JOBS", ""); val != "" {
+		if n, err := fmt.Sscanf(val, "%d", &maxJobs); err != nil || n != 1 || maxJobs <= 0 {
+			maxJobs = 5
+		}
+	}
+
 	return &Config{
-		TelegramToken:    getEnv("TELEGRAM_TOKEN", ""),
-		OpenRouterAPIKey: getEnv("OPENROUTER_API_KEY", ""),
-		GeminiAPIKey:     geminiKey,
-		AllowedUserID:    getEnv("ALLOWED_USER_ID", ""),
-		DefaultModel:     defaultModel,
-		GoogleModel:      googleModel,
-		OpenRouterModel:  openRouterModel,
-		DefaultProvider:  defaultProvider,
+		TelegramToken:     getEnv("TELEGRAM_TOKEN", ""),
+		OpenRouterAPIKey:  getEnv("OPENROUTER_API_KEY", ""),
+		GeminiAPIKey:      geminiKey,
+		AllowedUserID:     getEnv("ALLOWED_USER_ID", ""),
+		DefaultModel:      defaultModel,
+		GoogleModel:       googleModel,
+		OpenRouterModel:   openRouterModel,
+		DefaultProvider:   defaultProvider,
+		MaxConcurrentJobs: maxJobs,
 	}
 }
 

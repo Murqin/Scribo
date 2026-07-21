@@ -29,7 +29,7 @@ var (
 	sharedClient = &http.Client{Timeout: 15 * time.Second}
 )
 
-func GetDynamicPricing(ctx context.Context, modelID string) Pricing {
+func (p *OpenRouterProvider) GetDynamicPricing(ctx context.Context, modelID string) Pricing {
 	cacheMutex.RLock()
 	if c, ok := pricesCache[modelID]; ok && time.Now().Before(c.expiry) {
 		cacheMutex.RUnlock()
@@ -37,9 +37,20 @@ func GetDynamicPricing(ctx context.Context, modelID string) Pricing {
 	}
 	cacheMutex.RUnlock()
 
-	req, err := http.NewRequestWithContext(ctx, "GET", "https://openrouter.ai/api/v1/models", nil)
+	baseURL := "https://openrouter.ai/api/v1"
+	client := sharedClient
+	if p != nil {
+		if p.BaseURL != "" {
+			baseURL = p.BaseURL
+		}
+		if p.client != nil {
+			client = p.client
+		}
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "GET", baseURL+"/models", nil)
 	if err == nil {
-		resp, err := sharedClient.Do(req)
+		resp, err := client.Do(req)
 		if err == nil {
 			defer resp.Body.Close()
 			if resp.StatusCode == http.StatusOK {
@@ -102,17 +113,23 @@ type OpenRouterResponse struct {
 }
 
 type OpenRouterProvider struct {
-	APIKey string
-	Model  string
-	client *http.Client
+	APIKey  string
+	Model   string
+	BaseURL string
+	client  *http.Client
 }
 
 func NewOpenRouterProvider(apiKey, model string) *OpenRouterProvider {
 	return &OpenRouterProvider{
-		APIKey: apiKey,
-		Model:  model,
-		client: &http.Client{Timeout: 60 * time.Second},
+		APIKey:  apiKey,
+		Model:   model,
+		BaseURL: "https://openrouter.ai/api/v1",
+		client:  &http.Client{Timeout: 60 * time.Second},
 	}
+}
+
+func (p *OpenRouterProvider) SetHTTPClient(c *http.Client) {
+	p.client = c
 }
 
 func (p *OpenRouterProvider) Name() string {
@@ -130,7 +147,11 @@ func (p *OpenRouterProvider) Generate(ctx context.Context, systemPrompt, audioBa
 		audioFormat = parts[1]
 	}
 
-	url := "https://openrouter.ai/api/v1/chat/completions"
+	baseURL := p.BaseURL
+	if baseURL == "" {
+		baseURL = "https://openrouter.ai/api/v1"
+	}
+	url := baseURL + "/chat/completions"
 
 	reqBody := OpenRouterRequest{
 		Model: p.Model,
@@ -160,49 +181,72 @@ func (p *OpenRouterProvider) Generate(ctx context.Context, systemPrompt, audioBa
 		return nil, err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
-	if err != nil {
-		return nil, err
+	maxRetries := 2
+	backoff := 500 * time.Millisecond
+
+	var lastErr error
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(backoff):
+				backoff *= 2
+			}
+		}
+
+		req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Set("Authorization", "Bearer "+p.APIKey)
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := p.client.Do(req)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			lastErr = err
+			continue
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			lastErr = fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
+			if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
+				continue
+			}
+			return nil, lastErr
+		}
+
+		var resData OpenRouterResponse
+		if err := json.Unmarshal(body, &resData); err != nil {
+			return nil, err
+		}
+
+		if len(resData.Choices) == 0 {
+			return nil, fmt.Errorf("OpenRouter yanıtında geçerli seçim bulunamadı")
+		}
+
+		pricing := p.GetDynamicPricing(ctx, p.Model)
+		pTokens := resData.Usage.PromptTokens
+		cTokens := resData.Usage.CompletionTokens
+		cost := (float64(pTokens) * pricing.Prompt) + (float64(cTokens) * pricing.Completion)
+
+		return &AIResult{
+			Text:             resData.Choices[0].Message.Content,
+			PromptTokens:     pTokens,
+			CompletionTokens: cTokens,
+			TotalCost:        cost,
+		}, nil
 	}
 
-	req.Header.Set("Authorization", "Bearer "+p.APIKey)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := p.client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
-	}
-
-	var resData OpenRouterResponse
-	if err := json.Unmarshal(body, &resData); err != nil {
-		return nil, err
-	}
-
-	if len(resData.Choices) == 0 {
-		return nil, fmt.Errorf("OpenRouter yanıtında geçerli seçim bulunamadı")
-	}
-
-	pricing := GetDynamicPricing(ctx, p.Model)
-	pTokens := resData.Usage.PromptTokens
-	cTokens := resData.Usage.CompletionTokens
-	cost := (float64(pTokens) * pricing.Prompt) + (float64(cTokens) * pricing.Completion)
-
-	return &AIResult{
-		Text:             resData.Choices[0].Message.Content,
-		PromptTokens:     pTokens,
-		CompletionTokens: cTokens,
-		TotalCost:        cost,
-	}, nil
+	return nil, lastErr
 }
 
 type OpenRouterResult = AIResult

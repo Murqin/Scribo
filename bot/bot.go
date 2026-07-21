@@ -27,6 +27,8 @@ type BotRunner struct {
 	openRouterProvider provider.AIProvider
 	httpClient         *http.Client
 	activeLocks        sync.Map
+	workerSem          chan struct{}
+	wg                 sync.WaitGroup
 }
 
 func NewBotRunner(cfg *config.Config) (*BotRunner, error) {
@@ -39,7 +41,7 @@ func NewBotRunner(cfg *config.Config) (*BotRunner, error) {
 		return nil, err
 	}
 
-	slog.Info("🤖 Telegram Bot yetkilendirildi", "username", bot.Self.UserName)
+	slog.Info("🤖 Telegram Bot yetkilendirildi", "username", bot.Self.UserName, "maxConcurrentJobs", cfg.MaxConcurrentJobs)
 
 	return &BotRunner{
 		cfg:                cfg,
@@ -47,6 +49,7 @@ func NewBotRunner(cfg *config.Config) (*BotRunner, error) {
 		googleProvider:     provider.NewGoogleProvider(cfg.GeminiAPIKey, cfg.GoogleModel),
 		openRouterProvider: provider.NewOpenRouterProvider(cfg.OpenRouterAPIKey, cfg.OpenRouterModel),
 		httpClient:         &http.Client{Timeout: 60 * time.Second},
+		workerSem:          make(chan struct{}, cfg.MaxConcurrentJobs),
 	}, nil
 }
 
@@ -59,10 +62,14 @@ func (b *BotRunner) StartPolling(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
-			slog.Info("🛑 Polling durduruluyor...")
+			b.api.StopReceivingUpdates()
+			slog.Info("🛑 Polling durduruluyor, aktif işlemlerin tamamlanması bekleniyor...")
+			b.wg.Wait()
+			slog.Info("✅ Tüm aktif işlemler tamamlandı.")
 			return nil
 		case update, ok := <-updates:
 			if !ok {
+				b.wg.Wait()
 				return nil
 			}
 			if update.Message != nil {
@@ -236,8 +243,19 @@ func (b *BotRunner) handleCallbackQuery(ctx context.Context, cb *tgbotapi.Callba
 		return
 	}
 
+	b.wg.Add(1)
 	go func() {
+		defer b.wg.Done()
 		defer b.activeLocks.Delete(lockKey)
+
+		select {
+		case b.workerSem <- struct{}{}:
+			defer func() { <-b.workerSem }()
+		case <-ctx.Done():
+			slog.Warn("Bağlam sonlandırıldı, işlem iptal edildi", "key", lockKey)
+			return
+		}
+
 		b.processVoice(ctx, cb.Message.Chat.ID, audioTarget.FileID, targetMode, cb.Message.MessageID, forceProvider, audioTarget.MimeType)
 	}()
 }
