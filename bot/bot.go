@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"scribo/config"
@@ -82,23 +83,49 @@ type AudioTarget struct {
 	FileSize int
 	Duration int
 	Name     string
+	MimeType string
+}
+
+func mimeTypeFromExt(ext string) string {
+	switch ext {
+	case ".mp3":
+		return "audio/mp3"
+	case ".m4a":
+		return "audio/m4a"
+	case ".wav":
+		return "audio/wav"
+	case ".aac":
+		return "audio/aac"
+	case ".flac":
+		return "audio/flac"
+	case ".opus":
+		return "audio/opus"
+	default:
+		return "audio/ogg"
+	}
 }
 
 func extractAudioTarget(msg *tgbotapi.Message) *AudioTarget {
+	if msg == nil {
+		return nil
+	}
 	if msg.Voice != nil {
 		return &AudioTarget{
 			FileID:   msg.Voice.FileID,
 			FileSize: msg.Voice.FileSize,
 			Duration: msg.Voice.Duration,
 			Name:     "Ses Kaydı",
+			MimeType: "audio/ogg",
 		}
 	}
 	if msg.Audio != nil {
+		ext := strings.ToLower(filepath.Ext(msg.Audio.FileName))
 		return &AudioTarget{
 			FileID:   msg.Audio.FileID,
 			FileSize: msg.Audio.FileSize,
 			Duration: msg.Audio.Duration,
 			Name:     msg.Audio.FileName,
+			MimeType: mimeTypeFromExt(ext),
 		}
 	}
 	if msg.Document != nil {
@@ -110,6 +137,7 @@ func extractAudioTarget(msg *tgbotapi.Message) *AudioTarget {
 				FileSize: msg.Document.FileSize,
 				Duration: 0,
 				Name:     msg.Document.FileName,
+				MimeType: mimeTypeFromExt(ext),
 			}
 		}
 	}
@@ -191,7 +219,7 @@ func (b *BotRunner) handleCallbackQuery(ctx context.Context, cb *tgbotapi.Callba
 		return
 	}
 
-	go b.processVoice(ctx, cb.Message.Chat.ID, audioTarget.FileID, targetMode, cb.Message.MessageID, forceProvider)
+	go b.processVoice(ctx, cb.Message.Chat.ID, audioTarget.FileID, targetMode, cb.Message.MessageID, forceProvider, audioTarget.MimeType)
 }
 
 func (b *BotRunner) sendTypingAction(ctx context.Context, chatID int64) func() {
@@ -211,12 +239,13 @@ func (b *BotRunner) sendTypingAction(ctx context.Context, chatID int64) func() {
 			}
 		}
 	}()
+	var once sync.Once
 	return func() {
-		close(stopChan)
+		once.Do(func() { close(stopChan) })
 	}
 }
 
-func (b *BotRunner) processVoice(ctx context.Context, chatID int64, fileID string, modeID string, statusMsgID int, forceProvider string) {
+func (b *BotRunner) processVoice(ctx context.Context, chatID int64, fileID string, modeID string, statusMsgID int, forceProvider string, mimeType string) {
 	stopTyping := b.sendTypingAction(ctx, chatID)
 	defer stopTyping()
 
@@ -270,7 +299,7 @@ func (b *BotRunner) processVoice(ctx context.Context, chatID int64, fileID strin
 		gMsg.ParseMode = tgbotapi.ModeHTML
 		b.api.Send(gMsg)
 
-		res, gErr := b.googleProvider.Generate(ctx, systemPrompt, base64Audio)
+		res, gErr := b.googleProvider.Generate(ctx, systemPrompt, base64Audio, mimeType)
 		if gErr == nil {
 			b.sendSuccessResponse(chatID, statusMsgID, res.Text, "<b>Google Free Tier</b> (<code>$0.00000</code>)")
 			return
@@ -308,7 +337,7 @@ func (b *BotRunner) processVoice(ctx context.Context, chatID int64, fileID strin
 	orMsg.ParseMode = tgbotapi.ModeHTML
 	b.api.Send(orMsg)
 
-	res, err := b.openRouterProvider.Generate(ctx, systemPrompt, base64Audio)
+	res, err := b.openRouterProvider.Generate(ctx, systemPrompt, base64Audio, mimeType)
 	if err != nil {
 		b.sendError(chatID, statusMsgID, modeID, fmt.Sprintf("OpenRouter Hatası: %v", err))
 		return

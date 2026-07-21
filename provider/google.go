@@ -55,7 +55,7 @@ func (p *GoogleProvider) Name() string {
 	return "Google Free Tier"
 }
 
-func (p *GoogleProvider) Generate(ctx context.Context, systemPrompt, audioBase64 string) (*AIResult, error) {
+func (p *GoogleProvider) Generate(ctx context.Context, systemPrompt, audioBase64, mimeType string) (*AIResult, error) {
 	if p.APIKey == "" {
 		return nil, fmt.Errorf("Google API key bulunamadı")
 	}
@@ -74,7 +74,7 @@ func (p *GoogleProvider) Generate(ctx context.Context, systemPrompt, audioBase64
 					{Text: "İşle."},
 					{
 						InlineData: &GooglePartInlineData{
-							MimeType: "audio/ogg",
+							MimeType: mimeType,
 							Data:     audioBase64,
 						},
 					},
@@ -125,9 +125,9 @@ func (p *GoogleProvider) Generate(ctx context.Context, systemPrompt, audioBase64
 	}, nil
 }
 
-func CallGoogleAPI(apiKey, model, systemPrompt, base64Audio string) (string, error) {
+func CallGoogleAPI(apiKey, model, systemPrompt, base64Audio, mimeType string) (string, error) {
 	p := NewGoogleProvider(apiKey, model)
-	res, err := p.Generate(context.Background(), systemPrompt, base64Audio)
+	res, err := p.Generate(context.Background(), systemPrompt, base64Audio, mimeType)
 	if err != nil {
 		return "", err
 	}

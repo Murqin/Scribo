@@ -12,7 +12,6 @@ type Config struct {
 	OpenRouterAPIKey string
 	GeminiAPIKey     string
 	AllowedUserID    string
-	WebhookSecret    string
 	DefaultModel     string
 	GoogleModel      string
 	OpenRouterModel  string
@@ -34,7 +33,6 @@ func LoadConfig() *Config {
 		OpenRouterAPIKey: getEnv("OPENROUTER_API_KEY", ""),
 		GeminiAPIKey:     geminiKey,
 		AllowedUserID:    getEnv("ALLOWED_USER_ID", ""),
-		WebhookSecret:    getEnv("WEBHOOK_SECRET", ""),
 		DefaultModel:     defaultModel,
 		GoogleModel:      googleModel,
 		OpenRouterModel:  openRouterModel,

@@ -11,5 +11,5 @@ type AIResult struct {
 
 type AIProvider interface {
 	Name() string
-	Generate(ctx context.Context, systemPrompt, audioBase64 string) (*AIResult, error)
+	Generate(ctx context.Context, systemPrompt, audioBase64, mimeType string) (*AIResult, error)
 }

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
@@ -16,16 +17,22 @@ type Pricing struct {
 	Completion float64 `json:"completion"`
 }
 
+type cachedPricing struct {
+	pricing Pricing
+	expiry  time.Time
+}
+
 var (
-	pricesCache = make(map[string]Pricing)
+	pricesCache = make(map[string]cachedPricing)
 	cacheMutex  sync.RWMutex
+	cacheTTL    = time.Hour
 )
 
 func GetDynamicPricing(ctx context.Context, modelID string) Pricing {
 	cacheMutex.RLock()
-	if p, ok := pricesCache[modelID]; ok {
+	if c, ok := pricesCache[modelID]; ok && time.Now().Before(c.expiry) {
 		cacheMutex.RUnlock()
-		return p
+		return c.pricing
 	}
 	cacheMutex.RUnlock()
 
@@ -46,7 +53,7 @@ func GetDynamicPricing(ctx context.Context, modelID string) Pricing {
 				for _, m := range result.Data {
 					if m.ID == modelID {
 						cacheMutex.Lock()
-						pricesCache[modelID] = m.Pricing
+						pricesCache[modelID] = cachedPricing{pricing: m.Pricing, expiry: time.Now().Add(cacheTTL)}
 						cacheMutex.Unlock()
 						return m.Pricing
 					}
@@ -105,7 +112,7 @@ func (p *OpenRouterProvider) Name() string {
 	return "OpenRouter API"
 }
 
-func (p *OpenRouterProvider) Generate(ctx context.Context, systemPrompt, audioBase64 string) (*AIResult, error) {
+func (p *OpenRouterProvider) Generate(ctx context.Context, systemPrompt, audioBase64, mimeType string) (*AIResult, error) {
 	if p.APIKey == "" {
 		return nil, fmt.Errorf("OpenRouter API key bulunamadı")
 	}
@@ -132,7 +139,7 @@ func (p *OpenRouterProvider) Generate(ctx context.Context, systemPrompt, audioBa
 						Type: "input_audio",
 						InputAudio: &OpenRouterContentAudioItem{
 							Data:   audioBase64,
-							Format: "ogg",
+							Format: strings.SplitN(mimeType, "/", 2)[1],
 						},
 					},
 				},
@@ -193,7 +200,7 @@ func (p *OpenRouterProvider) Generate(ctx context.Context, systemPrompt, audioBa
 
 type OpenRouterResult = AIResult
 
-func CallOpenRouterAPI(apiKey, model, systemPrompt, base64Audio string) (*AIResult, error) {
+func CallOpenRouterAPI(apiKey, model, systemPrompt, base64Audio, mimeType string) (*AIResult, error) {
 	p := NewOpenRouterProvider(apiKey, model)
-	return p.Generate(context.Background(), systemPrompt, base64Audio)
+	return p.Generate(context.Background(), systemPrompt, base64Audio, mimeType)
 }
