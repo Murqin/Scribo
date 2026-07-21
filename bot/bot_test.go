@@ -1,6 +1,7 @@
 package bot
 
 import (
+	"strings"
 	"testing"
 
 	"scribo/config"
@@ -32,16 +33,29 @@ func TestMimeTypeFromExt(t *testing.T) {
 }
 
 func TestSplitMessage(t *testing.T) {
+	// Empty string
+	if chunks := splitMessage("", 100); chunks != nil {
+		t.Errorf("expected nil for empty string, got %v", chunks)
+	}
+
+	// Short text
 	shortText := "Short text"
 	chunks := splitMessage(shortText, 100)
 	if len(chunks) != 1 || chunks[0] != shortText {
 		t.Errorf("expected 1 chunk matching short text, got %v", chunks)
 	}
 
+	// Long text split by newlines
 	longText := "Line 1\nLine 2\nLine 3\nLine 4\nLine 5"
 	chunks = splitMessage(longText, 15)
 	if len(chunks) < 2 {
-		t.Errorf("expected long text to be split into multiple chunks, got %d chunks", len(chunks))
+		t.Fatalf("expected long text to be split into multiple chunks, got %d chunks", len(chunks))
+	}
+
+	// Reassembled text check
+	joined := strings.Join(chunks, "\n")
+	if strings.ReplaceAll(joined, "\n\n", "\n") != longText {
+		t.Errorf("reassembled text does not match original: got %q, want %q", joined, longText)
 	}
 }
 
@@ -82,18 +96,62 @@ func TestExtractAudioTarget_Audio(t *testing.T) {
 	}
 }
 
+func TestExtractAudioTarget_Document(t *testing.T) {
+	// 1. Audio Document (.flac)
+	msgAudioDoc := &tgbotapi.Message{
+		Document: &tgbotapi.Document{
+			FileID:   "doc_flac_789",
+			FileName: "recording.flac",
+			FileSize: 4096,
+		},
+	}
+
+	target := extractAudioTarget(msgAudioDoc)
+	if target == nil {
+		t.Fatal("expected non-nil AudioTarget for audio document")
+	}
+	if target.FileID != "doc_flac_789" || target.MimeType != "audio/flac" {
+		t.Errorf("unexpected target: %+v", target)
+	}
+
+	// 2. Non-audio Document (.pdf)
+	msgPdfDoc := &tgbotapi.Message{
+		Document: &tgbotapi.Document{
+			FileID:   "doc_pdf_000",
+			FileName: "document.pdf",
+			FileSize: 8192,
+		},
+	}
+
+	if extractAudioTarget(msgPdfDoc) != nil {
+		t.Error("expected nil AudioTarget for non-audio document (.pdf)")
+	}
+}
+
 func TestIsAuthorized(t *testing.T) {
-	runner := &BotRunner{
+	// 1. Restricted User ID
+	runnerRestricted := &BotRunner{
 		cfg: &config.Config{
 			AllowedUserID: "123456",
 		},
 	}
 
-	if !runner.isAuthorized(123456) {
+	if !runnerRestricted.isAuthorized(123456) {
 		t.Error("user 123456 should be authorized")
 	}
 
-	if runner.isAuthorized(999999) {
+	if runnerRestricted.isAuthorized(999999) {
 		t.Error("user 999999 should not be authorized")
+	}
+
+	// 2. Empty AllowedUserID (Public mode)
+	runnerPublic := &BotRunner{
+		cfg: &config.Config{
+			AllowedUserID: "",
+		},
+	}
+
+	if !runnerPublic.isAuthorized(999999) {
+		t.Error("user 999999 should be authorized when AllowedUserID is empty")
 	}
 }
