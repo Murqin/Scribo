@@ -41,11 +41,10 @@ Non-developers can run Scribo without installing Go or compiling code:
 2. Extract and enter the directory:
    ```bash
    tar -xzvf scribo-linux-amd64.tar.gz
-   cd scribo-linux-amd64
+   cd scribo
    ```
-3. Copy configuration template and edit your API keys:
+3. Edit your API keys in `.env`:
    ```bash
-   cp .env.example .env
    nano .env
    ```
 4. Run the 1-command 7/24 service installer:
