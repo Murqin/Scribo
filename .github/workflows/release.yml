@@ -2,6 +2,8 @@ name: Release Scribo Binaries
 
 on:
   push:
+    branches:
+      - main
     tags:
       - 'v*'
 
@@ -31,6 +33,8 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || 'v0.0.1' }}
+          name: ${{ github.ref_type == 'tag' && github.ref_name || 'Scribo v0.0.1' }}
           files: |
             dist/scribo-linux-amd64.tar.gz
             dist/scribo-linux-arm64.tar.gz
