@@ -50,23 +50,10 @@ make build
 make test
 ```
 
-### Run Service on Oracle VPS (`/etc/systemd/system/scribo.service`)
-```ini
-[Unit]
-Description=Scribo Telegram Bot (Go Edition)
-After=network.target
-
-[Service]
-Type=simple
-User=ubuntu
-WorkingDirectory=/opt/scribo
-ExecStart=/opt/scribo/scribo
-Restart=always
-RestartSec=5
-EnvironmentFile=/opt/scribo/.env
-
-[Install]
-WantedBy=multi-user.target
+### Run 7/24 Service on Oracle VPS (Automated Setup)
+```bash
+chmod +x setup_service.sh
+sudo ./setup_service.sh
 ```
 
 ---
