@@ -21,7 +21,13 @@ func LoadConfig() *Config {
 	loadDotEnv(".env")
 
 	defaultModel := getEnv("MODEL", getEnv("GEMINI_MODEL", "gemini-3.6-flash"))
-	googleModel := getEnv("GOOGLE_MODEL", defaultModel)
+
+	googleModel := getEnv("GOOGLE_MODEL", "")
+	if googleModel == "" {
+		googleModel = strings.TrimPrefix(defaultModel, "google/")
+	} else {
+		googleModel = strings.TrimPrefix(googleModel, "google/")
+	}
 
 	openRouterModel := getEnv("OPENROUTER_MODEL", "")
 	if openRouterModel == "" {
