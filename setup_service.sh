@@ -33,7 +33,7 @@ WorkingDirectory=${WORKING_DIR}
 ExecStart=${WORKING_DIR}/scribo
 Restart=always
 RestartSec=5
-EnvironmentFile=${WORKING_DIR}/.env
+EnvironmentFile=-${WORKING_DIR}/.env
 
 [Install]
 WantedBy=multi-user.target
