@@ -20,6 +20,8 @@ Improve bot prompts, add Obsidian note mode, add Blog mode, disable API document
 - 2026-07-19 13:10 - Removed "Obsidian'a Aktar" button and the redirect endpoint completely.
 - 2026-07-21 17:28 - Implemented Google Free Tier API provider as primary strategy with interactive Telegram prompt fallback to paid OpenRouter service.
 - 2026-07-21 17:30 - Migrated default models to Gemini 3.6 Flash (`google/gemini-3.6-flash` and `gemini-3.6-flash`) for lower latency and costs.
+- 2026-07-21 18:16 - Captured Python benchmark snapshot in `PYTHON_SNAPSHOT.md` and created tag `v1.0.0-python-snapshot`.
+- 2026-07-21 18:17 - Fully rewritten Scribo in Go (Golang 1.26) with zero external dependencies, 8.9 MB static binary, and ~8-12 MB RAM footprint. Passed unit test parity.
 ## 3. Next Steps
 - Push changes to remote.
 ## 4. Known Issues & Roadblocks

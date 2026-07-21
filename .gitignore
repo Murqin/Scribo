@@ -1,18 +1,9 @@
-# Her şeyi yok say (Ignore all by default)
-*
+# Compiled binaries
+/scribo
 
-# Dizinlerin içeriğinin taranabilmesi için dizinleri hariç tut
-!api/
-!assets/
+# Environment variables
+.env
 
-# Sadece takip etmek istediğimiz dosyaları beyaz listeye (whitelist) al
-!.gitignore
-!README.md
-!requirements.txt
-!vercel.json
-!AGENT_STATE.md
-!api/index.py
-!assets/mascot.jpg
-!setup_keepalive.sh
-!main.py
-!PYTHON_SNAPSHOT.md
+# System & OS files
+.DS_Store
+*.log

@@ -1,5 +1,0 @@
-fastapi
-python-telegram-bot==21.1.1
-requests
-httpx
-python-dotenv==1.0.1

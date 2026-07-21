@@ -1,109 +1,72 @@
-# Scribo 🎙️
+# Scribo 🎙️ (Go / Golang Edition)
 
 <p align="center">
   <img src="assets/mascot.jpg" alt="Scribo Mascot" width="200" style="border-radius: 50%;"/>
 </p>
 
-> **A serverless, FastAPI-powered Telegram bot running on Vercel that intercepts voice messages, transcribes, formats, and transforms them using Google Gemini API (Free Tier) with seamless fallback to OpenRouter (Paid Gemini 3.6 Flash), and audits execution costs in real-time.**
+> **A high-performance, ultra-lightweight Telegram bot written in Go (Golang) running 24/7 on Oracle Cloud Infrastructure (OCI). Intercepts voice messages, transcribes, formats, and transforms them using Google Gemini API (Free Tier) with interactive fallback to OpenRouter (Paid Gemini 3.6 Flash), using under 15 MB RAM.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](LICENSE)
-[![Tech: FastAPI](https://img.shields.io/badge/FastAPI-v0.100%2B-009688?style=flat-square&logo=fastapi&logoColor=white)](#)
-[![Tech: Python](https://img.shields.io/badge/Python-3.10%2B-blue?style=flat-square&logo=python&logoColor=white)](#)
+[![Tech: Go](https://img.shields.io/badge/Language-Go%201.26-00ADD8?style=flat-square&logo=go&logoColor=white)](#)
 [![Model: Gemini 3.6 Flash](https://img.shields.io/badge/Model-Gemini%203.6%20Flash-red?style=flat-square&logo=google&logoColor=white)](#)
-[![Infrastructure: Vercel](https://img.shields.io/badge/Infrastructure-Vercel%20Serverless-black?style=flat-square&logo=vercel&logoColor=white)](#)
+[![Infrastructure: Oracle Cloud](https://img.shields.io/badge/Infrastructure-Oracle%20Cloud%20Always%20Free-black?style=flat-square&logo=oracle&logoColor=white)](#)
+
+---
+
+## ⚡ Performance Highlights (Go vs Python)
+- **RAM Usage:** **~8-12 MB** (vs ~60 MB in Python).
+- **Binary Size:** Single **8.9 MB** standalone static binary. Zero external runtime dependencies.
+- **Speed:** Instant startup with zero cold-starts and high-concurrency Goroutine execution.
 
 ---
 
 ## ✨ Features
 
-- **⚡ Serverless FastAPI Webhook:** Built for serverless deployment on Vercel (`api/index.py`), executing instantly with zero persistent container overhead.
 - **🆓 Google Free Tier First Strategy:** Tries official Google Gemini API (Free Tier) first. If rate limits or errors occur, prompts the user interactively before falling back to paid OpenRouter service.
 - **🎙️ Direct Audio Modality:** Bypasses conventional, slow speech-to-text converters. Encodes raw `.ogg` voice buffers to base64 and streams them directly to Gemini's native audio-sensing model.
-- **🏷️ Smart Interactive Modes:** Features inline button selectors situated directly inside Telegram chats:
-  - **📝 Özet (TL;DR):** Generates a concise, 1st-person Turkish summary without intro/outro text, keeping the context clean.
-  - **✍️ Transkript:** Resolves a precise, word-for-word literal translation/transcription of the spoken recording.
-  - **🛠️ Düzelt:** Transcribes the audio while correcting syntax, spelling errors, and outputting a highly fluent, reading-friendly block.
-  - **📓 Obsidian Notu:** Creates a copy-paste ready structured Obsidian note (title, tags, summary, bullet points, task checklist).
-  - **📰 Blog Yazısı:** Converts voice notes to blog posts in a markdown format fully compatible with markdown.js.
-  - **🧠 Fikir Geliştir:** Analyzes concepts/ideas in the audio to generate a structured project report with concept summary, SWOT analysis, and next actions.
-  - **📱 Sosyal Medya:** Generates ready-to-use posts for LinkedIn and X (Twitter Thread) based on the audio content.
-  - **🇬🇧 İngilizce Çeviri:** Natively translates the spoken Turkish audio into fluent, structured English.
-  - **🎯 Master Prompt:** Analyzes the scope of the audio topic and synthesizes an expert, reusable Master Prompt tailored for ChatGPT, Claude, or Gemini.
+- **🏷️ Smart Interactive Modes (9 Modes):**
+  - **📝 Özet (TL;DR):** Generates a concise, 1st-person Turkish summary without intro/outro text.
+  - **✍️ Transkript:** Resolves a precise, word-for-word literal transcription.
+  - **🛠️ Düzelt:** Transcribes the audio while correcting syntax and spelling errors.
+  - **📓 Obsidian Notu:** Creates a copy-paste ready structured Obsidian note.
+  - **📰 Blog Yazısı:** Converts voice notes to blog posts in a markdown format.
+  - **🧠 Fikir Geliştir:** Analyzes concepts/ideas to generate a structured project report (SWOT & Next Steps).
+  - **📱 Sosyal Medya:** Generates ready-to-use posts for LinkedIn and X (Twitter Thread).
+  - **🇬🇧 İngilizce Çeviri:** Natively translates Turkish audio into fluent English.
+  - **🎯 Master Prompt:** Synthesizes an expert, reusable Master Prompt for ChatGPT/Claude/Gemini.
 
 ---
 
-## 🏗️ Execution Flow
+## 🏗️ Building & Deploying
 
-```mermaid
-sequenceDiagram
-    autonumber
-    actor User as Telegram User
-    participant TG as Telegram API
-    participant Bot as FastAPI (Vercel)
-    participant OR as OpenRouter (Gemini)
-
-    User->>TG: Sends voice message (.ogg)
-    TG->>Bot: Post Webhook Event (with X-Secret-Token)
-    Note over Bot: Validate Secret Token & User ID
-    Bot->>TG: Ask choice (Özet / Transkript / Düzelt)
-    User->>TG: Selects mode button
-    TG->>Bot: Post Callback Query
-    Bot->>TG: Downloads .ogg to /tmp
-    Bot->>OR: Post Base64 Audio Buffer & System Prompt
-    OR->>Bot: Returns Text response & Token usage
-    Bot->>Bot: Fetch OpenRouter prices & Calculate Cost
-    Bot->>TG: Edit message to show code-block text + cost details
-```
-
----
-
-## 🛠️ Environment Variables Configuration
-
-Create a local `.env` file (or set keys inside your Vercel deployment console):
-
-```env
-TELEGRAM_TOKEN=your_telegram_bot_token
-OPENROUTER_API_KEY=your_openrouter_developer_api_key
-GEMINI_API_KEY=your_google_ai_studio_free_tier_api_key
-MODEL=gemini-3.6-flash
-WEBHOOK_SECRET=your_custom_secure_secret_token
-ALLOWED_USER_ID=your_numerical_telegram_user_id
-```
-
----
-
-## 🚀 Build & Deployment
-
-### 1. Running Locally
-To launch a local development server for testing:
+### Build Locally
 ```bash
-# Clone the repository
-git clone https://github.com/Murqin/tldr-bot.git
-cd tldr-bot
-
-# Install requirements
-pip install -r requirements.txt
-
-# Launch FastAPI using Uvicorn
-uvicorn api.index:app --reload
+make build
+# Creates single binary: ./scribo
 ```
 
-### 2. Register Telegram Webhook
-Point Telegram's API endpoint to your hosted server instance:
+### Run Tests
 ```bash
-curl -X POST "https://api.telegram.org/bot<YOUR_TELEGRAM_TOKEN>/setWebhook" \
-     -H "Content-Type: application/json" \
-     -d '{"url": "https://your-app.vercel.app/webhook", "secret_token": "<YOUR_WEBHOOK_SECRET>"}'
+make test
 ```
 
-### 3. Deploying to Vercel
-Deploy seamlessly using the Vercel CLI:
-```bash
-# Install Vercel CLI
-npm install -g vercel
+### Run Service on Oracle VPS (`/etc/systemd/system/scribo.service`)
+```ini
+[Unit]
+Description=Scribo Telegram Bot (Go Edition)
+After=network.target
 
-# Deploy production build
-vercel --prod
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/scribo
+ExecStart=/opt/scribo/scribo
+Restart=always
+RestartSec=5
+EnvironmentFile=/opt/scribo/.env
+
+[Install]
+WantedBy=multi-user.target
 ```
 
 ---
@@ -112,12 +75,14 @@ vercel --prod
 
 ```text
 scribo/
-├── main.py                 # Primary entrypoint for Oracle Cloud VPS (Long Polling 24/7)
-├── api/
-│   └── index.py            # FastAPI entrypoint for Vercel serverless webhook
-├── setup_keepalive.sh      # Oracle Cloud idle reclaim prevention setup script
-├── requirements.txt         # Python package dependencies
-├── vercel.json              # Vercel serverless routing configuration
+├── main.go               # Primary Go application entrypoint
+├── config/               # Environment configuration loader (.env support)
+├── mode/                 # 9 Interactive modes & inline keyboard builder
+├── provider/             # Google Gemini Direct & OpenRouter API clients
+├── setup_keepalive.sh    # Oracle Cloud idle reclaim prevention setup script
+├── Makefile              # Build & test helpers
+├── go.mod                # Go module specification
+├── PYTHON_SNAPSHOT.md    # Reference snapshot of original Python implementation
 └── README.md
 ```
 
