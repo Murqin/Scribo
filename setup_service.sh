@@ -13,8 +13,13 @@ if [ ! -f "${WORKING_DIR}/scribo" ]; then
 fi
 
 if [ ! -f "${WORKING_DIR}/.env" ]; then
-    echo "⚠️ UYARI: ${WORKING_DIR}/.env dosyası bulunamadı!"
-    echo "   Lütfen .env dosyasını oluşturup API anahtarlarınızı ekleyin."
+    if [ -f "${WORKING_DIR}/.env.example" ]; then
+        echo "📝 .env dosyası bulunamadı, .env.example şablonundan otomatik oluşturuluyor..."
+        cp "${WORKING_DIR}/.env.example" "${WORKING_DIR}/.env"
+        echo "⚠️ LÜTFEN UYARI: ${WORKING_DIR}/.env dosyasını açıp kendi API anahtarlarınızı giriniz!"
+    else
+        echo "⚠️ UYARI: ${WORKING_DIR}/.env dosyası bulunamadı!"
+    fi
 fi
 
 CURRENT_USER="$(whoami)"
