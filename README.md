@@ -1,91 +1,140 @@
 # Scribo 🎙️ (Go / Golang Edition)
 
 <p align="center">
-  <img src="assets/mascot.jpg" alt="Scribo Mascot" width="200" style="border-radius: 50%;"/>
+  <img src="assets/mascot.jpg" alt="Scribo Mascot" width="180" style="border-radius: 50%;"/>
 </p>
 
-> **A high-performance, ultra-lightweight Telegram bot written in Go (Golang) running 24/7 on Oracle Cloud Infrastructure (OCI). Intercepts voice messages, transcribes, formats, and transforms them using Google Gemini API (Free Tier) with interactive fallback to OpenRouter (Paid Gemini 3.6 Flash), using under 15 MB RAM.**
+> **Scribo is a high-performance, ultra-lightweight Telegram bot written in Go (Golang). It captures voice notes, MP3s, and audio files, processing them natively using Google Gemini AI (Free Tier) with an interactive OpenRouter fallback. Runs 24/7 on Oracle Cloud VPS consuming under 10 MB RAM.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](LICENSE)
-[![Tech: Go](https://img.shields.io/badge/Language-Go%201.26-00ADD8?style=flat-square&logo=go&logoColor=white)](#)
+[![Tech: Go](https://img.shields.io/badge/Language-Go-00ADD8?style=flat-square&logo=go&logoColor=white)](#)
 [![Model: Gemini 3.6 Flash](https://img.shields.io/badge/Model-Gemini%203.6%20Flash-red?style=flat-square&logo=google&logoColor=white)](#)
 [![Infrastructure: Oracle Cloud](https://img.shields.io/badge/Infrastructure-Oracle%20Cloud%20Always%20Free-black?style=flat-square&logo=oracle&logoColor=white)](#)
 
 ---
 
-## ⚡ Performance Highlights (Go vs Python)
-- **RAM Usage:** **~8-12 MB** (vs ~60 MB in Python).
-- **Binary Size:** Single **8.9 MB** standalone static binary. Zero external runtime dependencies.
-- **Speed:** Instant startup with zero cold-starts and high-concurrency Goroutine execution.
+## ⚡ Performance Highlights (Go Architecture)
+
+- **Memory Footprint:** **~6-10 MB RAM** (vs ~60 MB in Python).
+- **Binary Size:** **~6.4 MB** standalone static binary. Zero runtime dependencies.
+- **Startup Speed:** Instant startup (<10ms) with zero cold-starts and high-concurrency Goroutines.
+- **Portless & SSL-Free:** Uses 100% Outbound Telegram Long Polling (no domain, no SSL, no open ports needed).
 
 ---
 
 ## ✨ Features
 
-- **🆓 Google Free Tier First Strategy:** Tries official Google Gemini API (Free Tier) first. If rate limits or errors occur, prompts the user interactively before falling back to paid OpenRouter service.
-- **🎙️ Direct Audio Modality:** Bypasses conventional, slow speech-to-text converters. Encodes raw `.ogg` voice buffers to base64 and streams them directly to Gemini's native audio-sensing model.
-- **🏷️ Smart Interactive Modes (9 Modes):**
-  - **📝 Özet (TL;DR):** Generates a concise, 1st-person Turkish summary without intro/outro text.
-  - **✍️ Transkript:** Resolves a precise, word-for-word literal transcription.
-  - **🛠️ Düzelt:** Transcribes the audio while correcting syntax and spelling errors.
-  - **📓 Obsidian Notu:** Creates a copy-paste ready structured Obsidian note.
-  - **📰 Blog Yazısı:** Converts voice notes to blog posts in a markdown format.
-  - **🧠 Fikir Geliştir:** Analyzes concepts/ideas to generate a structured project report (SWOT & Next Steps).
-  - **📱 Sosyal Medya:** Generates ready-to-use posts for LinkedIn and X (Twitter Thread).
-  - **🇬🇧 İngilizce Çeviri:** Natively translates Turkish audio into fluent English.
-  - **🎯 Master Prompt:** Synthesizes an expert, reusable Master Prompt for ChatGPT/Claude/Gemini.
+- **🆓 Google Free Tier First Strategy:** Direct connection to official Google Gemini API ($0.00). If rate limits occur, interactively prompts the user for OpenRouter fallback.
+- **🎙️ Native Audio Processing:** Streams raw audio buffers directly to Gemini's multi-modal audio engine. Supports Voice Notes (`.ogg`), Audio (`.mp3`, `.m4a`, `.wav`), and Document audio files up to 20 MB.
+- **🧩 100% JSON-Driven Modes (`modes.json`):** Prompt instructions and Telegram inline keyboard buttons are managed dynamically via JSON without recompiling code!
+- **⚡ Typing Chat Action Indicator:** Sends real-time "typing..." status while downloading audio and generating AI responses.
+- **🛡️ Security & Privacy:** Restricts access via `ALLOWED_USER_ID`. Hardened Systemd service security.
+- **📦 Zero-Code Distribution:** Ready-to-run release archives for non-developer end-users (`make release`).
 
 ---
 
-## 🏗️ Building & Deploying
+## 🚀 Quick Start for End-Users (Zero-Code)
 
-### Build Locally
-```bash
-make build
-# Creates single binary: ./scribo
+Non-developers can run Scribo without installing Go or compiling code:
+
+1. Download the pre-compiled release archive for your server architecture (`amd64` or `arm64`).
+2. Extract and enter the directory:
+   ```bash
+   tar -xzvf scribo-linux-amd64.tar.gz
+   cd scribo-linux-amd64
+   ```
+3. Copy configuration template and edit your API keys:
+   ```bash
+   cp .env.example .env
+   nano .env
+   ```
+4. Run the 1-command 7/24 service installer:
+   ```bash
+   sudo ./setup_service.sh
+   ```
+
+---
+
+## ⚙️ Environment Configuration (`.env`)
+
+```env
+# Telegram Bot Token (from @BotFather)
+TELEGRAM_TOKEN=123456789:ABCdefGHIjklMNOpqrsTUVwxyz
+
+# Authorized Telegram User ID (from @userinfobot)
+ALLOWED_USER_ID=123456789
+
+# AI Provider API Keys
+GEMINI_API_KEY=your_google_ai_studio_api_key
+OPENROUTER_API_KEY=your_openrouter_api_key
+
+# Default Provider (google or openrouter)
+DEFAULT_PROVIDER=google
+
+# Models
+GOOGLE_MODEL=gemini-3.6-flash
+OPENROUTER_MODEL=google/gemini-3.6-flash
 ```
 
-### Run Tests
+---
+
+## 🧩 Custom Modes & Prompts (`modes.json`)
+
+To customize button names or add custom AI prompts, create a `modes.json` file in the working directory (or copy `modes.example.json`):
+
+```json
+{
+  "tldr": {
+    "label": "📝 Özet",
+    "prompt": "Sen profesyonel bir ses analiz asistanısın..."
+  },
+  "trans": {
+    "label": "✍️ Transkript",
+    "prompt": "Sen hassas bir ses deşifre sistemisin..."
+  },
+  "fix": {
+    "label": "🛠️ Düzelt",
+    "prompt": "Sen uzman bir editör ve dil düzeltme sistemisin..."
+  }
+}
+```
+
+Scribo automatically detects `modes.json` at startup, re-creates the Telegram inline keyboard dynamically, and applies your custom prompts!
+
+---
+
+## 🛠️ Developer Commands
+
+### Test Codebase
 ```bash
 make test
 ```
 
-### Environment Configuration
-```env
-TELEGRAM_TOKEN=your_telegram_bot_token
-OPENROUTER_API_KEY=your_openrouter_developer_api_key
-GEMINI_API_KEY=your_google_ai_studio_free_tier_api_key
-DEFAULT_PROVIDER=google
-GOOGLE_MODEL=gemini-3.6-flash
-OPENROUTER_MODEL=google/gemini-3.6-flash
-ALLOWED_USER_ID=your_numerical_telegram_user_id
+### Build Binary Locally
+```bash
+make build
 ```
 
-### Run 7/24 Service on Oracle VPS (Automated Setup)
+### Build Release Archives
 ```bash
-chmod +x setup_service.sh
-sudo ./setup_service.sh
+make release
+# Generates release packages in dist/ directory
 ```
 
 ---
 
-## 📂 Project Architecture
+## 📊 Monitoring Logs (Systemd)
 
-```text
-scribo/
-├── main.go               # Primary Go application entrypoint
-├── config/               # Environment configuration loader (.env support)
-├── mode/                 # 9 Interactive modes & inline keyboard builder
-├── provider/             # Google Gemini Direct & OpenRouter API clients
-├── setup_keepalive.sh    # Oracle Cloud idle reclaim prevention setup script
-├── Makefile              # Build & test helpers
-├── go.mod                # Go module specification
-├── PYTHON_SNAPSHOT.md    # Reference snapshot of original Python implementation
-└── README.md
+```bash
+# Follow live logs
+sudo journalctl -u scribo -f
+
+# View last 50 log entries
+sudo journalctl -u scribo -n 50 --no-pager
 ```
 
 ---
 
 ## 📄 License
 
-Licensed under the terms of the MIT License. See [LICENSE](LICENSE) for more details.
+Licensed under the terms of the **MIT License**. See [LICENSE](LICENSE) for details.
