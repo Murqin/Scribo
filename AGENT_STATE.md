@@ -14,6 +14,11 @@ Maintain, refactor, and scale Scribo (Go Edition) as a high-performance, ultra-l
 - 2026-07-21 19:35 - Transformed mode management to be 100% JSON-driven. Embedded core 3 default modes (`tldr`, `trans`, `fix`) in `mode/default_modes.json` via `//go:embed`, with `modes.json` on disk serving as single source of truth when present.
 - 2026-07-21 19:46 - Added `make release` command to `Makefile` for zero-code distribution packaging (`scribo-linux-amd64.tar.gz` and `scribo-linux-arm64.tar.gz`). Added MIT `LICENSE` and `.env.example` template with auto-copy logic in `setup_service.sh`.
 - 2026-07-21 20:07 - Configured GitHub Actions CI/CD workflow (`.github/workflows/release.yml`) with automated semantic versioning (`mathieudutour/github-tag-action@v6.2`) and GitHub Releases assets publishing (`softprops/action-gh-release@v2`).
+- 2026-07-21 23:04 - Performed comprehensive multi-subagent code review and implemented critical refactorings:
+  - **Thread-Safety & Resiliency:** Protected `mode` package with `sync.RWMutex`, refactored `LoadCustomModes` to safely parse JSON into temporary structures before updating state.
+  - **Network & Memory Protection:** Added shared `*http.Client` pooling across providers and bot runner; wrapped Telegram audio downloads with `io.LimitReader` (capped at 20 MB); fixed HTTP Body leaks in `OpenRouterProvider`.
+  - **Panic & Concurrency Guard:** Fixed MIME format split out-of-bounds index panic in `openrouter.go`; added `activeLocks sync.Map` to prevent duplicate processing on Telegram callback double-clicks.
+  - **Logging & Error Resilience:** Standardized logging on `log/slog` across all packages and added error checks for `b.api.Send` calls.
 
 ## 3. Key Conventions & Guidelines for Future AI Agents
 - **Code Comments:** Write clean, concise English comments only where necessary in Go source code files.

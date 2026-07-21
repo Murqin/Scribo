@@ -45,10 +45,15 @@ type GoogleResponse struct {
 type GoogleProvider struct {
 	APIKey string
 	Model  string
+	client *http.Client
 }
 
 func NewGoogleProvider(apiKey, model string) *GoogleProvider {
-	return &GoogleProvider{APIKey: apiKey, Model: model}
+	return &GoogleProvider{
+		APIKey: apiKey,
+		Model:  model,
+		client: &http.Client{Timeout: 60 * time.Second},
+	}
 }
 
 func (p *GoogleProvider) Name() string {
@@ -94,8 +99,7 @@ func (p *GoogleProvider) Generate(ctx context.Context, systemPrompt, audioBase64
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{Timeout: 45 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := p.client.Do(req)
 	if err != nil {
 		return nil, err
 	}

@@ -3,8 +3,9 @@ package mode
 import (
 	_ "embed"
 	"encoding/json"
-	"log"
+	"log/slog"
 	"os"
+	"sync"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
@@ -18,24 +19,41 @@ type ModeInfo struct {
 	Prompt string `json:"prompt"`
 }
 
-var Modes = make(map[string]ModeInfo)
+var (
+	modesMu sync.RWMutex
+	modes   = make(map[string]ModeInfo)
+)
 
 func init() {
 	LoadModesFromBytes(defaultModesJSON, "gömülü varsayılan modlar")
 }
 
-func LoadModesFromBytes(data []byte, sourceName string) {
+func GetMode(id string) (ModeInfo, bool) {
+	modesMu.RLock()
+	defer modesMu.RUnlock()
+	m, ok := modes[id]
+	return m, ok
+}
+
+func LoadModesFromBytes(data []byte, sourceName string) bool {
 	var customModes map[string]ModeInfo
 	if err := json.Unmarshal(data, &customModes); err != nil {
-		log.Printf("⚠️ %s parse edilirken hata: %v", sourceName, err)
-		return
+		slog.Error("⚠️ Parse hatası, varsayılan modlar korunuyor", "source", sourceName, "error", err)
+		return false
 	}
 
+	newModes := make(map[string]ModeInfo, len(customModes))
 	for id, m := range customModes {
 		m.ID = id
-		Modes[id] = m
+		newModes[id] = m
 	}
-	log.Printf("✅ %s yüklendi (%d mod).", sourceName, len(customModes))
+
+	modesMu.Lock()
+	modes = newModes
+	modesMu.Unlock()
+
+	slog.Info("✅ Modlar yüklendi", "source", sourceName, "count", len(newModes))
+	return true
 }
 
 func LoadCustomModes(filename string) {
@@ -45,28 +63,34 @@ func LoadCustomModes(filename string) {
 
 	data, err := os.ReadFile(filename)
 	if err != nil {
-		log.Printf("⚠️ %s okunurken hata: %v", filename, err)
+		slog.Error("⚠️ Harici mod dosyası okunurken hata", "filename", filename, "error", err)
 		return
 	}
 
-	// Reset existing modes so modes.json becomes 100% single source of truth if provided!
-	Modes = make(map[string]ModeInfo)
+	// Unmarshal safely into temporary map first without clearing current modes
 	LoadModesFromBytes(data, filename)
 }
 
 func GetModeKeyboard() tgbotapi.InlineKeyboardMarkup {
+	modesMu.RLock()
+	modesCopy := make(map[string]ModeInfo, len(modes))
+	for k, v := range modes {
+		modesCopy[k] = v
+	}
+	modesMu.RUnlock()
+
 	order := []string{"tldr", "trans", "fix", "note", "blog", "brainstorm", "social", "translate", "master"}
 	visited := make(map[string]bool)
 	var modeList []ModeInfo
 
 	for _, id := range order {
-		if m, ok := Modes[id]; ok {
+		if m, ok := modesCopy[id]; ok {
 			modeList = append(modeList, m)
 			visited[id] = true
 		}
 	}
 
-	for id, m := range Modes {
+	for id, m := range modesCopy {
 		if !visited[id] {
 			m.ID = id
 			modeList = append(modeList, m)
@@ -90,3 +114,4 @@ func GetModeKeyboard() tgbotapi.InlineKeyboardMarkup {
 
 	return tgbotapi.InlineKeyboardMarkup{InlineKeyboard: rows}
 }
+

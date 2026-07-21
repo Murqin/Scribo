@@ -23,9 +23,10 @@ type cachedPricing struct {
 }
 
 var (
-	pricesCache = make(map[string]cachedPricing)
-	cacheMutex  sync.RWMutex
-	cacheTTL    = time.Hour
+	pricesCache  = make(map[string]cachedPricing)
+	cacheMutex   sync.RWMutex
+	cacheTTL     = time.Hour
+	sharedClient = &http.Client{Timeout: 15 * time.Second}
 )
 
 func GetDynamicPricing(ctx context.Context, modelID string) Pricing {
@@ -38,24 +39,25 @@ func GetDynamicPricing(ctx context.Context, modelID string) Pricing {
 
 	req, err := http.NewRequestWithContext(ctx, "GET", "https://openrouter.ai/api/v1/models", nil)
 	if err == nil {
-		client := &http.Client{Timeout: 10 * time.Second}
-		resp, err := client.Do(req)
-		if err == nil && resp.StatusCode == http.StatusOK {
+		resp, err := sharedClient.Do(req)
+		if err == nil {
 			defer resp.Body.Close()
-			body, _ := io.ReadAll(resp.Body)
-			var result struct {
-				Data []struct {
-					ID      string  `json:"id"`
-					Pricing Pricing `json:"pricing"`
-				} `json:"data"`
-			}
-			if json.Unmarshal(body, &result) == nil {
-				for _, m := range result.Data {
-					if m.ID == modelID {
-						cacheMutex.Lock()
-						pricesCache[modelID] = cachedPricing{pricing: m.Pricing, expiry: time.Now().Add(cacheTTL)}
-						cacheMutex.Unlock()
-						return m.Pricing
+			if resp.StatusCode == http.StatusOK {
+				body, _ := io.ReadAll(resp.Body)
+				var result struct {
+					Data []struct {
+						ID      string  `json:"id"`
+						Pricing Pricing `json:"pricing"`
+					} `json:"data"`
+				}
+				if json.Unmarshal(body, &result) == nil {
+					for _, m := range result.Data {
+						if m.ID == modelID {
+							cacheMutex.Lock()
+							pricesCache[modelID] = cachedPricing{pricing: m.Pricing, expiry: time.Now().Add(cacheTTL)}
+							cacheMutex.Unlock()
+							return m.Pricing
+						}
 					}
 				}
 			}
@@ -102,10 +104,15 @@ type OpenRouterResponse struct {
 type OpenRouterProvider struct {
 	APIKey string
 	Model  string
+	client *http.Client
 }
 
 func NewOpenRouterProvider(apiKey, model string) *OpenRouterProvider {
-	return &OpenRouterProvider{APIKey: apiKey, Model: model}
+	return &OpenRouterProvider{
+		APIKey: apiKey,
+		Model:  model,
+		client: &http.Client{Timeout: 60 * time.Second},
+	}
 }
 
 func (p *OpenRouterProvider) Name() string {
@@ -117,10 +124,11 @@ func (p *OpenRouterProvider) Generate(ctx context.Context, systemPrompt, audioBa
 		return nil, fmt.Errorf("OpenRouter API key bulunamadı")
 	}
 
-	priceChan := make(chan Pricing, 1)
-	go func() {
-		priceChan <- GetDynamicPricing(ctx, p.Model)
-	}()
+	audioFormat := "ogg"
+	parts := strings.SplitN(mimeType, "/", 2)
+	if len(parts) == 2 && parts[1] != "" {
+		audioFormat = parts[1]
+	}
 
 	url := "https://openrouter.ai/api/v1/chat/completions"
 
@@ -139,7 +147,7 @@ func (p *OpenRouterProvider) Generate(ctx context.Context, systemPrompt, audioBa
 						Type: "input_audio",
 						InputAudio: &OpenRouterContentAudioItem{
 							Data:   audioBase64,
-							Format: strings.SplitN(mimeType, "/", 2)[1],
+							Format: audioFormat,
 						},
 					},
 				},
@@ -160,8 +168,7 @@ func (p *OpenRouterProvider) Generate(ctx context.Context, systemPrompt, audioBa
 	req.Header.Set("Authorization", "Bearer "+p.APIKey)
 	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{Timeout: 45 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := p.client.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -185,7 +192,7 @@ func (p *OpenRouterProvider) Generate(ctx context.Context, systemPrompt, audioBa
 		return nil, fmt.Errorf("OpenRouter yanıtında geçerli seçim bulunamadı")
 	}
 
-	pricing := <-priceChan
+	pricing := GetDynamicPricing(ctx, p.Model)
 	pTokens := resData.Usage.PromptTokens
 	cTokens := resData.Usage.CompletionTokens
 	cost := (float64(pTokens) * pricing.Prompt) + (float64(cTokens) * pricing.Completion)
@@ -204,3 +211,4 @@ func CallOpenRouterAPI(apiKey, model, systemPrompt, base64Audio, mimeType string
 	p := NewOpenRouterProvider(apiKey, model)
 	return p.Generate(context.Background(), systemPrompt, base64Audio, mimeType)
 }
+
