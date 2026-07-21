@@ -1,13 +1,51 @@
 package mode
 
 import (
+	"encoding/json"
+	"log"
+	"os"
+
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
 type ModeInfo struct {
-	ID     string
-	Label  string
-	Prompt string
+	ID     string `json:"id,omitempty"`
+	Label  string `json:"label"`
+	Prompt string `json:"prompt"`
+}
+
+func LoadCustomModes(filename string) {
+	if _, err := os.Stat(filename); os.IsNotExist(err) {
+		return
+	}
+
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		log.Printf("⚠️ %s okunurken hata: %v", filename, err)
+		return
+	}
+
+	var customModes map[string]ModeInfo
+	if err := json.Unmarshal(data, &customModes); err != nil {
+		log.Printf("⚠️ %s parse edilirken hata: %v", filename, err)
+		return
+	}
+
+	for id, m := range customModes {
+		if existing, ok := Modes[id]; ok {
+			if m.Label != "" {
+				existing.Label = m.Label
+			}
+			if m.Prompt != "" {
+				existing.Prompt = m.Prompt
+			}
+			Modes[id] = existing
+		} else {
+			m.ID = id
+			Modes[id] = m
+		}
+	}
+	log.Printf("✅ %s dosyasından özelleştirilmiş mod ve promptlar yüklendi.", filename)
 }
 
 var Modes = map[string]ModeInfo{

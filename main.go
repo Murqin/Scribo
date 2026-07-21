@@ -5,12 +5,16 @@ import (
 
 	"scribo/bot"
 	"scribo/config"
+	"scribo/mode"
 )
 
 func main() {
 	log.Println("🚀 Scribo Bot (Go/Golang) başlatılıyor...")
 
 	cfg := config.LoadConfig()
+
+	// Load custom prompts and button labels from modes.json if present
+	mode.LoadCustomModes("modes.json")
 
 	runner, err := bot.NewBotRunner(cfg)
 	if err != nil {

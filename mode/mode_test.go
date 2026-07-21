@@ -25,3 +25,10 @@ func TestModesParity(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadCustomModes(t *testing.T) {
+	mode.LoadCustomModes("../modes.example.json")
+	if mode.Modes["master"].Label != "🎯 Master Prompt" {
+		t.Errorf("Master Prompt label uyuşmuyor: %s", mode.Modes["master"].Label)
+	}
+}

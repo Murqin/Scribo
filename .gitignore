@@ -1,8 +1,9 @@
 # Compiled binaries
 /scribo
 
-# Environment variables
+# Environment variables & local custom configs
 .env
+modes.json
 
 # System & OS files
 .DS_Store
