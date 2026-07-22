@@ -115,3 +115,57 @@ func TestMode_ConcurrencySafety(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+func TestMode_GetModeKeyboard_CustomModesDeterministicOrder(t *testing.T) {
+	t.Cleanup(func() {
+		LoadModesFromBytes(defaultModesJSON, "restore defaults")
+	})
+
+	customJSON := `{
+		"z_mode": {"label": "Z Mode", "prompt": "p1"},
+		"a_mode": {"label": "A Mode", "prompt": "p2"},
+		"m_mode": {"label": "M Mode", "prompt": "p3"}
+	}`
+
+	LoadModesFromBytes([]byte(customJSON), "custom order test")
+
+	var prevButtons []string
+	for i := 0; i < 10; i++ {
+		kb := GetModeKeyboard()
+		var buttons []string
+		for _, row := range kb.InlineKeyboard {
+			for _, btn := range row {
+				if btn.CallbackData != nil {
+					buttons = append(buttons, *btn.CallbackData)
+				}
+			}
+		}
+		if i > 0 {
+			if len(buttons) != len(prevButtons) {
+				t.Fatalf("iteration %d button count mismatch: %d vs %d", i, len(buttons), len(prevButtons))
+			}
+			for j := range buttons {
+				if buttons[j] != prevButtons[j] {
+					t.Fatalf("iteration %d button order changed at index %d: %s vs %s", i, j, buttons[j], prevButtons[j])
+				}
+			}
+		}
+		prevButtons = buttons
+	}
+
+	// Verify custom modes are sorted alphabetically: a_mode, m_mode, z_mode
+	foundA, foundM, foundZ := -1, -1, -1
+	for idx, b := range prevButtons {
+		switch b {
+		case "a_mode":
+			foundA = idx
+		case "m_mode":
+			foundM = idx
+		case "z_mode":
+			foundZ = idx
+		}
+	}
+	if !(foundA < foundM && foundM < foundZ) {
+		t.Errorf("expected sorted custom modes a_mode < m_mode < z_mode, got indices: a=%d, m=%d, z=%d", foundA, foundM, foundZ)
+	}
+}

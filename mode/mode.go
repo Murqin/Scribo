@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"os"
+	"sort"
 	"sync"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -90,11 +91,18 @@ func GetModeKeyboard() tgbotapi.InlineKeyboardMarkup {
 		}
 	}
 
-	for id, m := range modesCopy {
+	var customIDs []string
+	for id := range modesCopy {
 		if !visited[id] {
-			m.ID = id
-			modeList = append(modeList, m)
+			customIDs = append(customIDs, id)
 		}
+	}
+	sort.Strings(customIDs)
+
+	for _, id := range customIDs {
+		m := modesCopy[id]
+		m.ID = id
+		modeList = append(modeList, m)
 	}
 
 	var rows [][]tgbotapi.InlineKeyboardButton

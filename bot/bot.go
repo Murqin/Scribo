@@ -20,15 +20,27 @@ import (
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
+type TelegramClient interface {
+	Send(c tgbotapi.Chattable) (tgbotapi.Message, error)
+	GetFileDirectURL(fileID string) (string, error)
+	Request(c tgbotapi.Chattable) (*tgbotapi.APIResponse, error)
+	GetUpdatesChan(config tgbotapi.UpdateConfig) tgbotapi.UpdatesChannel
+	StopReceivingUpdates()
+}
+
 type BotRunner struct {
 	cfg                *config.Config
-	api                *tgbotapi.BotAPI
+	api                TelegramClient
 	googleProvider     provider.AIProvider
 	openRouterProvider provider.AIProvider
 	httpClient         *http.Client
 	activeLocks        sync.Map
 	workerSem          chan struct{}
 	wg                 sync.WaitGroup
+}
+
+func (b *BotRunner) SetTelegramClient(client TelegramClient) {
+	b.api = client
 }
 
 func NewBotRunner(cfg *config.Config) (*BotRunner, error) {

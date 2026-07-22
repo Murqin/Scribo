@@ -129,7 +129,7 @@ func (p *GoogleProvider) Generate(ctx context.Context, systemPrompt, audioBase64
 			continue
 		}
 
-		body, err := io.ReadAll(resp.Body)
+		body, err := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		resp.Body.Close()
 		if err != nil {
 			lastErr = err

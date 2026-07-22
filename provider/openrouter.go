@@ -29,6 +29,12 @@ var (
 	sharedClient = &http.Client{Timeout: 15 * time.Second}
 )
 
+func ResetPricingCache() {
+	cacheMutex.Lock()
+	defer cacheMutex.Unlock()
+	pricesCache = make(map[string]cachedPricing)
+}
+
 func (p *OpenRouterProvider) GetDynamicPricing(ctx context.Context, modelID string) Pricing {
 	cacheMutex.RLock()
 	if c, ok := pricesCache[modelID]; ok && time.Now().Before(c.expiry) {
@@ -209,7 +215,7 @@ func (p *OpenRouterProvider) Generate(ctx context.Context, systemPrompt, audioBa
 			continue
 		}
 
-		body, err := io.ReadAll(resp.Body)
+		body, err := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		resp.Body.Close()
 		if err != nil {
 			lastErr = err

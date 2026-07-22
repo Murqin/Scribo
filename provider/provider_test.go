@@ -184,6 +184,10 @@ func TestOpenRouterProvider_Generate_EmptyKey(t *testing.T) {
 }
 
 func TestOpenRouterProvider_GetDynamicPricing_Cache(t *testing.T) {
+	t.Cleanup(func() {
+		ResetPricingCache()
+	})
+
 	var callCount int32
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt32(&callCount, 1)
@@ -211,5 +215,58 @@ func TestOpenRouterProvider_GetDynamicPricing_Cache(t *testing.T) {
 
 	if atomic.LoadInt32(&callCount) != 1 {
 		t.Errorf("expected 1 HTTP call due to cache, got %d", callCount)
+	}
+}
+
+func TestGoogleProvider_Generate_LargeErrorBodyCapped(t *testing.T) {
+	largeErrBody := make([]byte, 10000)
+	for i := range largeErrBody {
+		largeErrBody[i] = 'A'
+	}
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write(largeErrBody)
+	}))
+	defer ts.Close()
+
+	gp := NewGoogleProvider("test_key", "gemini-3.6-flash")
+	gp.BaseURL = ts.URL
+	gp.SetHTTPClient(ts.Client())
+
+	_, err := gp.Generate(context.Background(), "prompt", "audio", "audio/ogg")
+	if err == nil {
+		t.Fatal("expected error on 400 Bad Request, got nil")
+	}
+
+	// Length of "HTTP 400: " is 10 chars, capped body should be 4096, total max length 4106
+	if len(err.Error()) > 4106 {
+		t.Errorf("expected error message length <= 4106 bytes (capped to 4096 body), got %d bytes", len(err.Error()))
+	}
+}
+
+func TestOpenRouterProvider_Generate_LargeErrorBodyCapped(t *testing.T) {
+	largeErrBody := make([]byte, 10000)
+	for i := range largeErrBody {
+		largeErrBody[i] = 'B'
+	}
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write(largeErrBody)
+	}))
+	defer ts.Close()
+
+	op := NewOpenRouterProvider("test_key", "google/gemini-3.6-flash")
+	op.BaseURL = ts.URL
+	op.SetHTTPClient(ts.Client())
+
+	_, err := op.Generate(context.Background(), "prompt", "audio", "audio/ogg")
+	if err == nil {
+		t.Fatal("expected error on 400 Bad Request, got nil")
+	}
+
+	if len(err.Error()) > 4106 {
+		t.Errorf("expected error message length <= 4106 bytes (capped to 4096 body), got %d bytes", len(err.Error()))
 	}
 }

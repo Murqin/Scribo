@@ -1,6 +1,7 @@
 package bot
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -153,5 +154,66 @@ func TestIsAuthorized(t *testing.T) {
 
 	if !runnerPublic.isAuthorized(999999) {
 		t.Error("user 999999 should be authorized when AllowedUserID is empty")
+	}
+}
+
+type mockTelegramClient struct {
+	sentMessages []tgbotapi.Chattable
+	fileURL      string
+	fileURLErr   error
+}
+
+func (m *mockTelegramClient) Send(c tgbotapi.Chattable) (tgbotapi.Message, error) {
+	m.sentMessages = append(m.sentMessages, c)
+	return tgbotapi.Message{}, nil
+}
+
+func (m *mockTelegramClient) GetFileDirectURL(fileID string) (string, error) {
+	if m.fileURLErr != nil {
+		return "", m.fileURLErr
+	}
+	return m.fileURL, nil
+}
+
+func (m *mockTelegramClient) Request(c tgbotapi.Chattable) (*tgbotapi.APIResponse, error) {
+	return &tgbotapi.APIResponse{Ok: true}, nil
+}
+
+func (m *mockTelegramClient) GetUpdatesChan(config tgbotapi.UpdateConfig) tgbotapi.UpdatesChannel {
+	return nil
+}
+
+func (m *mockTelegramClient) StopReceivingUpdates() {}
+
+func TestBotRunner_SetTelegramClient(t *testing.T) {
+	runner := &BotRunner{
+		cfg: &config.Config{},
+	}
+	mock := &mockTelegramClient{fileURL: "http://example.com/audio.ogg"}
+	runner.SetTelegramClient(mock)
+
+	if runner.api != mock {
+		t.Error("expected runner.api to be set to mock")
+	}
+}
+
+func TestBotRunner_HandleCallbackQuery_Unauthorized(t *testing.T) {
+	mock := &mockTelegramClient{}
+	runner := &BotRunner{
+		cfg: &config.Config{
+			AllowedUserID: "100",
+		},
+		api: mock,
+	}
+
+	cb := &tgbotapi.CallbackQuery{
+		ID:   "cb_123",
+		From: &tgbotapi.User{ID: 999}, // Unauthorized
+	}
+
+	runner.handleCallbackQuery(context.Background(), cb)
+
+	if len(mock.sentMessages) != 0 {
+		t.Errorf("expected 0 sent messages for unauthorized callback, got %d", len(mock.sentMessages))
 	}
 }

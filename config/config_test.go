@@ -58,6 +58,7 @@ func TestLoadConfig_MaxConcurrentJobs(t *testing.T) {
 	}{
 		{"10", 10},
 		{"invalid", 5},
+		{"10_jobs", 5},
 		{"0", 5},
 		{"-5", 5},
 	}

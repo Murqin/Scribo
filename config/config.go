@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -31,7 +32,9 @@ func LoadConfig() *Config {
 
 	maxJobs := 5
 	if val := getEnv("MAX_CONCURRENT_JOBS", ""); val != "" {
-		if n, err := fmt.Sscanf(val, "%d", &maxJobs); err != nil || n != 1 || maxJobs <= 0 {
+		if parsed, err := strconv.Atoi(val); err == nil && parsed > 0 {
+			maxJobs = parsed
+		} else {
 			maxJobs = 5
 		}
 	}
