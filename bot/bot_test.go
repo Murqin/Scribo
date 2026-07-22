@@ -217,3 +217,27 @@ func TestBotRunner_HandleCallbackQuery_Unauthorized(t *testing.T) {
 		t.Errorf("expected 0 sent messages for unauthorized callback, got %d", len(mock.sentMessages))
 	}
 }
+
+func TestBotRunner_SendSuccessResponse_TapToCopyPreFormatting(t *testing.T) {
+	mock := &mockTelegramClient{}
+	runner := &BotRunner{
+		cfg: &config.Config{},
+		api: mock,
+	}
+
+	runner.sendSuccessResponse(12345, 99, "Hello <World>", "cost info")
+
+	if len(mock.sentMessages) == 0 {
+		t.Fatal("expected sent messages, got 0")
+	}
+
+	firstEdit, ok := mock.sentMessages[0].(tgbotapi.EditMessageTextConfig)
+	if !ok {
+		t.Fatalf("expected first message to be EditMessageTextConfig, got %T", mock.sentMessages[0])
+	}
+
+	expectedText := "<pre>Hello &lt;World&gt;</pre>"
+	if firstEdit.Text != expectedText {
+		t.Errorf("expected formatted text %q, got %q", expectedText, firstEdit.Text)
+	}
+}

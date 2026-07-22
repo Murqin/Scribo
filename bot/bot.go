@@ -406,12 +406,12 @@ func (b *BotRunner) processVoice(ctx context.Context, chatID int64, fileID strin
 }
 
 func (b *BotRunner) sendSuccessResponse(chatID int64, statusMsgID int, cleanText string, costDetail string) {
-	chunks := splitMessage(cleanText, 3900)
+	chunks := splitMessage(cleanText, 3800)
 	if len(chunks) == 0 {
 		chunks = []string{"İşlem tamamlandı."}
 	}
 
-	firstChunkText := chunks[0]
+	firstChunkText := fmt.Sprintf("<pre>%s</pre>", html.EscapeString(chunks[0]))
 	kb := mode.GetModeKeyboard()
 
 	editMsg := tgbotapi.NewEditMessageText(chatID, statusMsgID, firstChunkText)
@@ -421,15 +421,18 @@ func (b *BotRunner) sendSuccessResponse(chatID int64, statusMsgID int, cleanText
 	if err != nil {
 		// Fallback to plain text if HTML parsing fails
 		editMsg.ParseMode = ""
+		editMsg.Text = chunks[0]
 		b.sendMsg(editMsg)
 	}
 
 	for _, c := range chunks[1:] {
-		msg := tgbotapi.NewMessage(chatID, c)
+		chunkText := fmt.Sprintf("<pre>%s</pre>", html.EscapeString(c))
+		msg := tgbotapi.NewMessage(chatID, chunkText)
 		msg.ParseMode = tgbotapi.ModeHTML
 		_, err := b.api.Send(msg)
 		if err != nil {
 			msg.ParseMode = ""
+			msg.Text = c
 			b.sendMsg(msg)
 		}
 	}
