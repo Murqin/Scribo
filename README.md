@@ -4,20 +4,20 @@
   <img src="assets/mascot.jpg" alt="Scribo Mascot" width="180" style="border-radius: 50%;"/>
 </p>
 
-> **Scribo is a high-performance, ultra-lightweight Telegram bot written in Go (Golang). It captures voice notes, MP3s, and audio files, processing them natively using Google Gemini AI (Free Tier) with an interactive OpenRouter fallback. Runs 24/7 on Oracle Cloud VPS consuming under 10 MB RAM.**
+> **Scribo is a high-performance, ultra-lightweight Telegram bot written in Go (Golang). It captures voice notes, MP3s, and audio files, processing them natively using Google Gemini AI (Free Tier) with an interactive OpenRouter fallback. Runs 24/7 on VPS environments consuming under 10 MB RAM.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](LICENSE)
 [![Tech: Go](https://img.shields.io/badge/Language-Go-00ADD8?style=flat-square&logo=go&logoColor=white)](#)
 [![Model: Gemini 3.6 Flash](https://img.shields.io/badge/Model-Gemini%203.6%20Flash-red?style=flat-square&logo=google&logoColor=white)](#)
-[![Infrastructure: Oracle Cloud](https://img.shields.io/badge/Infrastructure-Oracle%20Cloud%20Always%20Free-black?style=flat-square&logo=oracle&logoColor=white)](#)
+[![Infrastructure: Cross-Platform](https://img.shields.io/badge/Infrastructure-Linux%20%7C%20Windows-blue?style=flat-square)](#)
 
 ---
 
 ## ⚡ Performance Highlights (Go Architecture)
 
-- **Memory Footprint:** **~6-10 MB RAM** (vs ~60 MB in Python).
-- **Binary Size:** **~6.4 MB** standalone static binary. Zero runtime dependencies.
-- **Startup Speed:** Instant startup (<10ms) with zero cold-starts and high-concurrency Goroutines.
+- **Memory Footprint:** **~6-10 MB RAM** (vs ~60 MB in Python runtime).
+- **Binary Size:** **~6.3 MB** standalone static binary. Zero runtime dependencies.
+- **Startup Speed:** Instant startup (<10ms local init) with zero cold-starts and high-concurrency Goroutines.
 - **Portless & SSL-Free:** Uses 100% Outbound Telegram Long Polling (no domain, no SSL, no open ports needed).
 
 ---
@@ -33,11 +33,12 @@
 ## ✨ Features
 
 - **🆓 Google Free Tier First Strategy:** Direct connection to official Google Gemini API ($0.00). If rate limits occur, interactively prompts the user for OpenRouter fallback.
-- **🎙️ Native Audio Processing:** Streams raw audio buffers directly to Gemini's multi-modal audio engine. Supports Voice Notes (`.ogg`), Audio (`.mp3`, `.m4a`, `.wav`), and Document audio files up to 20 MB.
+- **🎙️ Native Audio Processing:** Streams raw audio buffers directly to Gemini's multi-modal audio engine. Supports Voice Notes (`.ogg`), Audio (`.mp3`, `.m4a`, `.wav`, `.aac`, `.flac`), and Document audio files up to 20 MB.
+- **📋 Tap-to-Copy Output Formatting:** Formats AI summaries and transcripts in Telegram `<pre>` code blocks for instant 1-tap clipboard copying on mobile and desktop clients.
 - **🧩 100% JSON-Driven Modes (`modes.json`):** Prompt instructions and Telegram inline keyboard buttons are managed dynamically via JSON without recompiling code!
-- **⚡ Typing Chat Action Indicator:** Sends real-time "typing..." status while downloading audio and generating AI responses.
-- **🛡️ Security & Privacy:** Restricts access via `ALLOWED_USER_ID`. Hardened Systemd service security.
-- **📦 Zero-Code Distribution:** Ready-to-run release archives for non-developer end-users (`make release`).
+- **⚡ Real-Time Chat Action Indicator:** Sends real-time "typing..." status while downloading audio and generating AI responses.
+- **🛡️ Security & Concurrency Safety:** Restricts access via `ALLOWED_USER_ID`, bounds concurrent jobs via worker pools (`MAX_CONCURRENT_JOBS`), and deduplicates simultaneous button requests.
+- **📦 Zero-Code Multi-Arch Distribution:** Ready-to-run release archives for Linux (`amd64`, `arm64`) and Windows (`amd64`, `arm64`).
 
 ---
 
@@ -45,17 +46,19 @@
 
 Non-developers can run Scribo without installing Go or compiling code:
 
-1. Download the pre-compiled release archive for your server architecture (`amd64` or `arm64`).
+1. Download the pre-compiled release archive for your server architecture (`linux-amd64`, `linux-arm64`, `windows-amd64`, or `windows-arm64`).
 2. Extract and enter the directory:
-   ```bash
-   tar -xzvf scribo-linux-amd64.tar.gz
-   cd scribo
-   ```
+   - **Linux:**
+     ```bash
+     tar -xzvf scribo-linux-amd64.tar.gz
+     cd scribo
+     ```
+   - **Windows:** Extract `scribo-windows-amd64.zip`.
 3. Edit your API keys in `.env`:
    ```bash
    nano .env
    ```
-4. Run the 1-command 7/24 service installer:
+4. Run the 1-command 7/24 service installer (Linux):
    ```bash
    sudo ./setup_service.sh
    ```
@@ -81,6 +84,10 @@ DEFAULT_PROVIDER=google
 # Models
 GOOGLE_MODEL=gemini-3.6-flash
 OPENROUTER_MODEL=google/gemini-3.6-flash
+
+# Worker Pool Concurrency Limit (Maximum simultaneous audio processing jobs)
+# Controls how many audio files are processed in parallel. Extra requests wait in queue safely.
+MAX_CONCURRENT_JOBS=5
 ```
 
 ---
@@ -106,7 +113,7 @@ To customize button names or add custom AI prompts, create a `modes.json` file i
 }
 ```
 
-Scribo automatically detects `modes.json` at startup, re-creates the Telegram inline keyboard dynamically, and applies your custom prompts!
+Scribo automatically detects `modes.json` at startup, re-creates the Telegram inline keyboard dynamically with alphabetical custom mode sorting, and applies your custom prompts!
 
 ---
 
@@ -122,10 +129,18 @@ make test
 make build
 ```
 
+### Build Multi-Platform Binaries
+```bash
+make build-linux-amd64
+make build-linux-arm64
+make build-windows-amd64
+make build-windows-arm64
+```
+
 ### Build Release Archives
 ```bash
 make release
-# Generates release packages in dist/ directory
+# Generates release packages in dist/ directory (tar.gz & zip)
 ```
 
 ---
