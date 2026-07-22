@@ -37,7 +37,7 @@
 - **📋 Tap-to-Copy Output Formatting:** Formats AI summaries and transcripts in Telegram `<pre>` code blocks for instant 1-tap clipboard copying on mobile and desktop clients.
 - **🧩 100% JSON-Driven Modes (`modes.json`):** Prompt instructions and Telegram inline keyboard buttons are managed dynamically via JSON without recompiling code!
 - **⚡ Real-Time Chat Action Indicator:** Sends real-time "typing..." status while downloading audio and generating AI responses.
-- **🛡️ Security & Concurrency Safety:** Restricts access via `ALLOWED_USER_ID`, bounds concurrent jobs via worker pools (`MAX_CONCURRENT_JOBS`), and deduplicates simultaneous button requests.
+- **🔒 Data Privacy Transparency:** Explicitly outlines data privacy differences between Google Free Tier ($0 - data used to improve Google products) vs Paid/OpenRouter ($ - strict data privacy, no model training).
 - **📦 Zero-Code Multi-Arch Distribution:** Ready-to-run release archives for Linux (`amd64`, `arm64`), Windows (`amd64`, `arm64`), and macOS (`Intel amd64`, `Apple Silicon M1-M4 arm64`).
 
 ---
@@ -100,6 +100,20 @@ OPENROUTER_MODEL=google/gemini-3.6-flash
 # Controls how many audio files are processed in parallel. Extra requests wait in queue safely.
 MAX_CONCURRENT_JOBS=5
 ```
+
+---
+
+## 🔒 Data Privacy & Model Training Notice
+
+Please review Google AI Studio's terms regarding data privacy between Free Tier and Paid Tier providers:
+
+| Provider / Tier | Cost | Model Training Usage | Rate Limits |
+| :--- | :--- | :--- | :--- |
+| **Google Free Tier (`google`)** | **$0.00** | ⚠️ **Yes** (Google may use anonymized data to train/improve products) | 15 RPM / 1,500 RPD |
+| **OpenRouter (`openrouter`)** | **Paid** | 🛡️ **No** (Data is strictly private, no model training) | High / Uncapped |
+| **Google Paid Tier** | **Paid** | 🛡️ **No** (Enterprise privacy, no model training) | High / Uncapped |
+
+> 💡 **Recommendation:** If you process sensitive or confidential audio, set `DEFAULT_PROVIDER=openrouter` or upgrade to Google's Paid Tier to guarantee enterprise-grade data privacy.
 
 ---
 
