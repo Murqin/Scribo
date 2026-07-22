@@ -241,3 +241,23 @@ func TestBotRunner_SendSuccessResponse_TapToCopyPreFormatting(t *testing.T) {
 		t.Errorf("expected formatted text %q, got %q", expectedText, firstEdit.Text)
 	}
 }
+
+func TestBotRunner_LockUnlock(t *testing.T) {
+	runner := &BotRunner{
+		cfg: &config.Config{},
+	}
+
+	if !runner.tryLock("key1") {
+		t.Error("expected first tryLock to succeed")
+	}
+
+	if runner.tryLock("key1") {
+		t.Error("expected second tryLock with same key to fail")
+	}
+
+	runner.unlock("key1")
+
+	if !runner.tryLock("key1") {
+		t.Error("expected tryLock to succeed after unlock")
+	}
+}

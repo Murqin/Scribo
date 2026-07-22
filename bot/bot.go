@@ -34,13 +34,44 @@ type BotRunner struct {
 	googleProvider     provider.AIProvider
 	openRouterProvider provider.AIProvider
 	httpClient         *http.Client
-	activeLocks        sync.Map
+	locksMu            sync.Mutex
+	activeLocks        map[string]bool
 	workerSem          chan struct{}
 	wg                 sync.WaitGroup
 }
 
+func (b *BotRunner) tryLock(key string) bool {
+	b.locksMu.Lock()
+	defer b.locksMu.Unlock()
+	if b.activeLocks == nil {
+		b.activeLocks = make(map[string]bool)
+	}
+	if b.activeLocks[key] {
+		return false
+	}
+	b.activeLocks[key] = true
+	return true
+}
+
+func (b *BotRunner) unlock(key string) {
+	b.locksMu.Lock()
+	defer b.locksMu.Unlock()
+	if b.activeLocks != nil {
+		delete(b.activeLocks, key)
+	}
+}
+
 func (b *BotRunner) SetTelegramClient(client TelegramClient) {
 	b.api = client
+}
+
+func (b *BotRunner) SetProviders(googleProv, openRouterProv provider.AIProvider) {
+	if googleProv != nil {
+		b.googleProvider = googleProv
+	}
+	if openRouterProv != nil {
+		b.openRouterProvider = openRouterProv
+	}
 }
 
 func NewBotRunner(cfg *config.Config) (*BotRunner, error) {
@@ -61,6 +92,7 @@ func NewBotRunner(cfg *config.Config) (*BotRunner, error) {
 		googleProvider:     provider.NewGoogleProvider(cfg.GeminiAPIKey, cfg.GoogleModel),
 		openRouterProvider: provider.NewOpenRouterProvider(cfg.OpenRouterAPIKey, cfg.OpenRouterModel),
 		httpClient:         &http.Client{Timeout: 60 * time.Second},
+		activeLocks:        make(map[string]bool),
 		workerSem:          make(chan struct{}, cfg.MaxConcurrentJobs),
 	}, nil
 }
@@ -250,23 +282,24 @@ func (b *BotRunner) handleCallbackQuery(ctx context.Context, cb *tgbotapi.Callba
 	}
 
 	lockKey := fmt.Sprintf("%d:%d", cb.Message.Chat.ID, cb.Message.MessageID)
-	if _, loaded := b.activeLocks.LoadOrStore(lockKey, true); loaded {
+	if !b.tryLock(lockKey) {
 		slog.Warn("Çift tıklama veya aynı mesaj üzerinde devam eden işlem engellendi", "key", lockKey)
+		return
+	}
+
+	select {
+	case b.workerSem <- struct{}{}:
+	case <-ctx.Done():
+		b.unlock(lockKey)
+		slog.Warn("Bağlam sonlandırıldı, işlem iptal edildi", "key", lockKey)
 		return
 	}
 
 	b.wg.Add(1)
 	go func() {
 		defer b.wg.Done()
-		defer b.activeLocks.Delete(lockKey)
-
-		select {
-		case b.workerSem <- struct{}{}:
-			defer func() { <-b.workerSem }()
-		case <-ctx.Done():
-			slog.Warn("Bağlam sonlandırıldı, işlem iptal edildi", "key", lockKey)
-			return
-		}
+		defer func() { <-b.workerSem }()
+		defer b.unlock(lockKey)
 
 		b.processVoice(ctx, cb.Message.Chat.ID, audioTarget.FileID, targetMode, cb.Message.MessageID, forceProvider, audioTarget.MimeType)
 	}()

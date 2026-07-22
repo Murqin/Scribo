@@ -61,7 +61,7 @@ run: build
 	./scribo
 
 test:
-	go test -v ./...
+	go test -race -v ./...
 
 clean:
 	rm -f scribo scribo-linux-amd64 scribo-linux-arm64 scribo-windows-amd64.exe scribo-windows-arm64.exe scribo-darwin-amd64 scribo-darwin-arm64
