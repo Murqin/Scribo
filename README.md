@@ -9,7 +9,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](LICENSE)
 [![Tech: Go](https://img.shields.io/badge/Language-Go-00ADD8?style=flat-square&logo=go&logoColor=white)](#)
 [![Model: Gemini 3.6 Flash](https://img.shields.io/badge/Model-Gemini%203.6%20Flash-red?style=flat-square&logo=google&logoColor=white)](#)
-[![Infrastructure: Cross-Platform](https://img.shields.io/badge/Infrastructure-Linux%20%7C%20Windows-blue?style=flat-square)](#)
+[![Infrastructure: Cross-Platform](https://img.shields.io/badge/Infrastructure-Linux%20%7C%20Windows%20%7C%20macOS-blue?style=flat-square)](#)
 
 ---
 
@@ -38,7 +38,7 @@
 - **🧩 100% JSON-Driven Modes (`modes.json`):** Prompt instructions and Telegram inline keyboard buttons are managed dynamically via JSON without recompiling code!
 - **⚡ Real-Time Chat Action Indicator:** Sends real-time "typing..." status while downloading audio and generating AI responses.
 - **🛡️ Security & Concurrency Safety:** Restricts access via `ALLOWED_USER_ID`, bounds concurrent jobs via worker pools (`MAX_CONCURRENT_JOBS`), and deduplicates simultaneous button requests.
-- **📦 Zero-Code Multi-Arch Distribution:** Ready-to-run release archives for Linux (`amd64`, `arm64`) and Windows (`amd64`, `arm64`).
+- **📦 Zero-Code Multi-Arch Distribution:** Ready-to-run release archives for Linux (`amd64`, `arm64`), Windows (`amd64`, `arm64`), and macOS (`Intel amd64`, `Apple Silicon M1-M4 arm64`).
 
 ---
 
@@ -46,11 +46,11 @@
 
 Non-developers can run Scribo without installing Go or compiling code:
 
-1. Download the pre-compiled release archive for your server architecture (`linux-amd64`, `linux-arm64`, `windows-amd64`, or `windows-arm64`).
+1. Download the pre-compiled release archive for your server architecture (`linux-amd64`, `linux-arm64`, `windows-amd64`, `windows-arm64`, `darwin-amd64`, or `darwin-arm64`).
 2. Extract and enter the directory:
-   - **Linux:**
+   - **Linux / macOS:**
      ```bash
-     tar -xzvf scribo-linux-amd64.tar.gz
+     tar -xzvf scribo-darwin-arm64.tar.gz  # or scribo-linux-amd64.tar.gz
      cd scribo
      ```
    - **Windows:** Extract `scribo-windows-amd64.zip`.
@@ -146,6 +146,8 @@ make build-linux-amd64
 make build-linux-arm64
 make build-windows-amd64
 make build-windows-arm64
+make build-darwin-amd64
+make build-darwin-arm64
 ```
 
 ### Build Release Archives
