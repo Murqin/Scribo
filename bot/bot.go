@@ -444,7 +444,7 @@ func (b *BotRunner) sendSuccessResponse(chatID int64, statusMsgID int, cleanText
 		chunks = []string{"İşlem tamamlandı."}
 	}
 
-	firstChunkText := fmt.Sprintf("<pre>%s</pre>", html.EscapeString(chunks[0]))
+	firstChunkText := fmt.Sprintf("<code>%s</code>", html.EscapeString(chunks[0]))
 	kb := mode.GetModeKeyboard()
 
 	editMsg := tgbotapi.NewEditMessageText(chatID, statusMsgID, firstChunkText)
@@ -459,7 +459,7 @@ func (b *BotRunner) sendSuccessResponse(chatID int64, statusMsgID int, cleanText
 	}
 
 	for _, c := range chunks[1:] {
-		chunkText := fmt.Sprintf("<pre>%s</pre>", html.EscapeString(c))
+		chunkText := fmt.Sprintf("<code>%s</code>", html.EscapeString(c))
 		msg := tgbotapi.NewMessage(chatID, chunkText)
 		msg.ParseMode = tgbotapi.ModeHTML
 		_, err := b.api.Send(msg)
