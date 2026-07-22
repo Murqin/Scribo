@@ -215,19 +215,21 @@ func (p *OpenRouterProvider) Generate(ctx context.Context, systemPrompt, audioBa
 			continue
 		}
 
-		body, err := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		resp.Body.Close()
-		if err != nil {
-			lastErr = err
-			continue
-		}
-
 		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+			resp.Body.Close()
 			lastErr = fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
 			if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
 				continue
 			}
 			return nil, lastErr
+		}
+
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			lastErr = err
+			continue
 		}
 
 		var resData OpenRouterResponse

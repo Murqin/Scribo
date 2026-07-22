@@ -2,9 +2,11 @@ package provider
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 )
@@ -48,6 +50,32 @@ func TestGoogleProvider_Generate_Success(t *testing.T) {
 
 	if res.TotalCost != 0.0 {
 		t.Errorf("expected zero cost for Google Free Tier, got %f", res.TotalCost)
+	}
+}
+
+func TestGoogleProvider_Generate_LargeSuccessResponse(t *testing.T) {
+	// Create a large > 4 KB response text (8 KB padding)
+	largeText := strings.Repeat("A", 8192)
+	mockResp := fmt.Sprintf(`{"candidates":[{"content":{"parts":[{"text":%q}]}}]}`, largeText)
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(mockResp))
+	}))
+	defer ts.Close()
+
+	gp := NewGoogleProvider("test_key", "gemini-3.6-flash")
+	gp.BaseURL = ts.URL
+	gp.SetHTTPClient(ts.Client())
+
+	res, err := gp.Generate(context.Background(), "prompt", "audio", "audio/ogg")
+	if err != nil {
+		t.Fatalf("expected successful unmarshaling for >4KB response, got error: %v", err)
+	}
+
+	if res.Text != largeText {
+		t.Errorf("expected large text length %d, got %d", len(largeText), len(res.Text))
 	}
 }
 
@@ -172,6 +200,36 @@ func TestOpenRouterProvider_Generate_Success(t *testing.T) {
 	expectedCost := (100.0 * 0.000001) + (50.0 * 0.000002)
 	if math.Abs(res.TotalCost-expectedCost) > 1e-7 {
 		t.Errorf("expected TotalCost %f, got %f", expectedCost, res.TotalCost)
+	}
+}
+
+func TestOpenRouterProvider_Generate_LargeSuccessResponse(t *testing.T) {
+	largeText := strings.Repeat("B", 8192)
+	mockModelsResp := `{"data":[{"id":"google/gemini-3.6-flash","pricing":{"prompt":0.000001,"completion":0.000002}}]}`
+	mockCompletionResp := fmt.Sprintf(`{"choices":[{"message":{"content":%q}}],"usage":{"prompt_tokens":10,"completion_tokens":20,"total_tokens":30}}`, largeText)
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		if r.URL.Path == "/models" {
+			w.Write([]byte(mockModelsResp))
+		} else {
+			w.Write([]byte(mockCompletionResp))
+		}
+	}))
+	defer ts.Close()
+
+	op := NewOpenRouterProvider("test_key", "google/gemini-3.6-flash")
+	op.BaseURL = ts.URL
+	op.SetHTTPClient(ts.Client())
+
+	res, err := op.Generate(context.Background(), "prompt", "audio", "audio/ogg")
+	if err != nil {
+		t.Fatalf("expected successful unmarshaling for >4KB response, got error: %v", err)
+	}
+
+	if res.Text != largeText {
+		t.Errorf("expected large text length %d, got %d", len(largeText), len(res.Text))
 	}
 }
 
