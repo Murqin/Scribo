@@ -47,6 +47,7 @@ jobs:
             dist/scribo-linux-amd64.tar.gz
             dist/scribo-linux-arm64.tar.gz
             dist/scribo-windows-amd64.zip
+            dist/scribo-windows-arm64.zip
           draft: false
           prerelease: false
           generate_release_notes: true
