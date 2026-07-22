@@ -22,9 +22,12 @@ if [ ! -f "${WORKING_DIR}/.env" ]; then
     fi
 fi
 
-CURRENT_USER="$(whoami)"
+RUN_USER="${SUDO_USER:-$(whoami)}"
+if [ "${RUN_USER}" = "root" ]; then
+    echo "⚠️ UYARI: Servis root kullanıcısı olarak oluşturuluyor. Güvenlik için yetkisiz bir kullanıcı önerilir."
+fi
 
-echo "📝 Systemd servisi oluşturuluyor: ${SERVICE_FILE} (Kullanıcı: ${CURRENT_USER})"
+echo "📝 Systemd servisi oluşturuluyor: ${SERVICE_FILE} (Kullanıcı: ${RUN_USER})"
 
 sudo bash -c "cat <<EOF > ${SERVICE_FILE}
 [Unit]
@@ -33,7 +36,7 @@ After=network.target
 
 [Service]
 Type=simple
-User=${CURRENT_USER}
+User=${RUN_USER}
 WorkingDirectory=${WORKING_DIR}
 ExecStart=${WORKING_DIR}/scribo
 Restart=always

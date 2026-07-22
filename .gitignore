@@ -1,15 +1,45 @@
-# Compiled binaries & release packages
-/scribo
-scribo-linux-*
-/dist/
+# ==============================================================================
+# Whitelisted .gitignore Strategy
+# Block everything by default; explicitly whitelist only essential source files.
+# ==============================================================================
 
-# Environment variables & local custom configs
-.env
-modes.json
+# 1. Ignore everything by default
+*
+!*/
 
-# System & OS files
-.DS_Store
-*.log
+# 2. Whitelist project configuration & metadata
+!.gitignore
+!LICENSE
+!Makefile
+!README.md
+!go.mod
+!go.sum
 
-# Large raw screencast files
-*.webm
+# 3. Whitelist configuration templates
+!.env.example
+!modes.example.json
+
+# 4. Whitelist source code & embedded assets
+!main.go
+!bot/
+!bot/*.go
+!config/
+!config/*.go
+!mode/
+!mode/*.go
+!mode/default_modes.json
+!provider/
+!provider/*.go
+
+# 5. Whitelist repository assets & GitHub CI/CD workflows
+!assets/
+!assets/**
+!.github/
+!.github/**
+
+# 6. Whitelist production deployment scripts
+!setup_service.sh
+!setup_keepalive.sh
+!restart.sh
+!stop.sh
+!uninstall.sh
