@@ -34,10 +34,10 @@
 
 - **🆓 Google Free Tier First Strategy:** Direct connection to official Google Gemini API ($0.00). If rate limits occur, interactively prompts the user for OpenRouter fallback.
 - **🎙️ Native Audio Processing:** Streams raw audio buffers directly to Gemini's multi-modal audio engine. Supports Voice Notes (`.ogg`), Audio (`.mp3`, `.m4a`, `.wav`, `.aac`, `.flac`), and Document audio files up to 20 MB.
-- **📋 Tap-to-Copy Output Formatting:** Formats AI summaries and transcripts in Telegram `<pre>` code blocks for instant 1-tap clipboard copying on mobile and desktop clients.
+- **📋 Tap-to-Copy Output Formatting:** Formats AI summaries and transcripts using Telegram `<code>` inline tags for instant 1-tap clipboard copying without code block header clutter.
 - **🧩 100% JSON-Driven Modes (`modes.json`):** Prompt instructions and Telegram inline keyboard buttons are managed dynamically via JSON without recompiling code!
 - **⚡ Real-Time Chat Action Indicator:** Sends real-time "typing..." status while downloading audio and generating AI responses.
-- **🔒 Data Privacy Transparency:** Explicitly outlines data privacy differences between Google Free Tier ($0 - data used to improve Google products) vs Paid/OpenRouter ($ - strict data privacy, no model training).
+- **🔒 Data Privacy Transparency:** Outlines clear privacy options between Google Free Tier ($0) and Paid/OpenRouter (strict privacy, zero model training).
 - **📦 Zero-Code Multi-Arch Distribution:** Ready-to-run release archives for Linux (`amd64`, `arm64`), Windows (`amd64`, `arm64`), and macOS (`Intel amd64`, `Apple Silicon M1-M4 arm64`).
 
 ---
@@ -138,7 +138,7 @@ To customize button names or add custom AI prompts, create a `modes.json` file i
 }
 ```
 
-Scribo automatically detects `modes.json` at startup, re-creates the Telegram inline keyboard dynamically with alphabetical custom mode sorting, and applies your custom prompts!
+Scribo automatically creates `modes.json` on disk at startup if missing, re-creates the Telegram inline keyboard dynamically with alphabetical custom mode sorting, and applies your custom prompts!
 
 ---
 

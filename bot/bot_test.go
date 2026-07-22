@@ -218,7 +218,7 @@ func TestBotRunner_HandleCallbackQuery_Unauthorized(t *testing.T) {
 	}
 }
 
-func TestBotRunner_SendSuccessResponse_TapToCopyPreFormatting(t *testing.T) {
+func TestBotRunner_SendSuccessResponse_TapToCopyCodeFormatting(t *testing.T) {
 	mock := &mockTelegramClient{}
 	runner := &BotRunner{
 		cfg: &config.Config{},
@@ -236,7 +236,7 @@ func TestBotRunner_SendSuccessResponse_TapToCopyPreFormatting(t *testing.T) {
 		t.Fatalf("expected first message to be EditMessageTextConfig, got %T", mock.sentMessages[0])
 	}
 
-	expectedText := "<pre>Hello &lt;World&gt;</pre>"
+	expectedText := "<code>Hello &lt;World&gt;</code>"
 	if firstEdit.Text != expectedText {
 		t.Errorf("expected formatted text %q, got %q", expectedText, firstEdit.Text)
 	}
