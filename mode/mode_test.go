@@ -45,12 +45,20 @@ func TestMode_GetModeKeyboard_Structure(t *testing.T) {
 }
 
 func TestMode_LoadCustomModes_NonExistentFile(t *testing.T) {
-	// Should return silently without clearing modes or panicking
-	LoadCustomModes("non_existent_file_12345.json")
+	tmpDir := t.TempDir()
+	missingFile := filepath.Join(tmpDir, "modes.json")
 
+	LoadCustomModes(missingFile)
+
+	// Verify default mode 'tldr' is loaded
 	_, ok := GetMode("tldr")
 	if !ok {
 		t.Error("default mode 'tldr' should be preserved when file does not exist")
+	}
+
+	// Verify file was automatically created on disk
+	if _, err := os.Stat(missingFile); os.IsNotExist(err) {
+		t.Errorf("expected missing file %s to be automatically created", missingFile)
 	}
 }
 

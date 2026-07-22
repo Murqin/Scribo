@@ -59,6 +59,11 @@ func LoadModesFromBytes(data []byte, sourceName string) bool {
 
 func LoadCustomModes(filename string) {
 	if _, err := os.Stat(filename); os.IsNotExist(err) {
+		if writeErr := os.WriteFile(filename, defaultModesJSON, 0644); writeErr != nil {
+			slog.Error("⚠️ Varsayılan modes.json dosyası oluşturulamadı", "filename", filename, "error", writeErr)
+		} else {
+			slog.Info("📝 Varsayılan modes.json dosyası otomatik oluşturuldu", "filename", filename)
+		}
 		return
 	}
 
