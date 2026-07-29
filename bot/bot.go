@@ -450,12 +450,11 @@ func (b *BotRunner) sendSuccessResponse(chatID int64, statusMsgID int, cleanText
 	editMsg := tgbotapi.NewEditMessageText(chatID, statusMsgID, firstChunkText)
 	editMsg.ParseMode = tgbotapi.ModeHTML
 	editMsg.ReplyMarkup = &kb
-	_, err := b.api.Send(editMsg)
-	if err != nil {
-		// Fallback to plain text if HTML parsing fails
-		editMsg.ParseMode = ""
-		editMsg.Text = chunks[0]
-		b.sendMsg(editMsg)
+	if _, err := b.api.Request(editMsg); err != nil {
+	    // Fallback to plain text if HTML parsing fails
+	    editMsg.ParseMode = ""
+	    editMsg.Text = chunks[0]
+	    b.sendMsg(editMsg)
 	}
 
 	for _, c := range chunks[1:] {
@@ -492,9 +491,17 @@ func (b *BotRunner) sendError(chatID int64, statusMsgID int, modeID string, errT
 }
 
 func (b *BotRunner) sendMsg(chg tgbotapi.Chattable) {
-	if _, err := b.api.Send(chg); err != nil {
-		slog.Error("Telegram mesaj gönderimi başarısız", "error", err)
-	}
+    var err error
+    switch v := chg.(type) {
+    case tgbotapi.EditMessageTextConfig, tgbotapi.EditMessageReplyMarkupConfig:
+        _, err = b.api.Request(v)
+    default:
+        _, err = b.api.Send(v)
+    }
+
+    if err != nil {
+        slog.Error("Telegram mesaj gönderimi başarısız", "error", err)
+    }
 }
 
 func splitMessage(text string, maxLength int) []string {
