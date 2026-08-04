@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -18,6 +19,9 @@ type GooglePartInlineData struct {
 type GooglePart struct {
 	Text       string                `json:"text,omitempty"`
 	InlineData *GooglePartInlineData `json:"inline_data,omitempty"`
+	// Thinking models may return reasoning parts alongside the answer; those must not
+	// be concatenated into the user-visible text.
+	Thought bool `json:"thought,omitempty"`
 }
 
 type GoogleContent struct {
@@ -31,15 +35,29 @@ type GoogleSystemInstruction struct {
 
 type GoogleRequest struct {
 	SystemInstruction GoogleSystemInstruction `json:"system_instruction"`
-	Contents          []GoogleContent          `json:"contents"`
+	Contents          []GoogleContent         `json:"contents"`
 }
 
 type GoogleCandidate struct {
-	Content GoogleContent `json:"content"`
+	Content      GoogleContent `json:"content"`
+	FinishReason string        `json:"finishReason"`
 }
 
+type GooglePromptFeedback struct {
+	BlockReason string `json:"blockReason"`
+}
+
+type GoogleUsageMetadata struct {
+	PromptTokenCount     int `json:"promptTokenCount"`
+	CandidatesTokenCount int `json:"candidatesTokenCount"`
+}
+
+// PromptFeedback and UsageMetadata are pointers so an absent field stays nil and the
+// provider behaves exactly as before rather than reporting a phantom failure.
 type GoogleResponse struct {
-	Candidates []GoogleCandidate `json:"candidates"`
+	Candidates     []GoogleCandidate     `json:"candidates"`
+	PromptFeedback *GooglePromptFeedback `json:"promptFeedback,omitempty"`
+	UsageMetadata  *GoogleUsageMetadata  `json:"usageMetadata,omitempty"`
 }
 
 type GoogleProvider struct {
@@ -151,14 +169,43 @@ func (p *GoogleProvider) Generate(ctx context.Context, systemPrompt, audioBase64
 			return nil, err
 		}
 
-		if len(resData.Candidates) == 0 || len(resData.Candidates[0].Content.Parts) == 0 {
+		if resData.PromptFeedback != nil && resData.PromptFeedback.BlockReason != "" {
+			return nil, fmt.Errorf("istek güvenlik filtresine takıldı (%s)", resData.PromptFeedback.BlockReason)
+		}
+
+		if len(resData.Candidates) == 0 {
+			return nil, fmt.Errorf("Yanıtta aday (candidate) bulunamadı")
+		}
+
+		candidate := resData.Candidates[0]
+
+		var sb strings.Builder
+		for _, part := range candidate.Content.Parts {
+			if part.Thought || part.Text == "" {
+				continue
+			}
+			sb.WriteString(part.Text)
+		}
+		text := sb.String()
+
+		if text == "" {
+			if candidate.FinishReason != "" && candidate.FinishReason != "STOP" {
+				return nil, fmt.Errorf("model yanıt üretmeden durdu (finishReason: %s)", candidate.FinishReason)
+			}
 			return nil, fmt.Errorf("Yanıtta geçerli içerik/part bulunamadı")
 		}
 
-		return &AIResult{
-			Text:      resData.Candidates[0].Content.Parts[0].Text,
-			TotalCost: 0.0,
-		}, nil
+		// A truncated answer is still worth delivering, but the user must know it is one.
+		if candidate.FinishReason == "MAX_TOKENS" {
+			text += "\n\n[...yanıt uzunluk sınırına takıldı ve kesildi]"
+		}
+
+		result := &AIResult{Text: text, TotalCost: 0.0}
+		if resData.UsageMetadata != nil {
+			result.PromptTokens = resData.UsageMetadata.PromptTokenCount
+			result.CompletionTokens = resData.UsageMetadata.CandidatesTokenCount
+		}
+		return result, nil
 	}
 
 	return nil, lastErr

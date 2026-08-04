@@ -406,7 +406,12 @@ func (b *BotRunner) processVoice(ctx context.Context, chatID int64, fileID strin
 
 		res, gErr := b.googleProvider.Generate(ctx, systemPrompt, base64Audio, mimeType)
 		if gErr == nil {
-			b.sendSuccessResponse(chatID, statusMsgID, res.Text, "<b>Google Free Tier</b> (<code>$0.00000</code>)")
+			detail := "<b>Google Free Tier</b> (<code>$0.00000</code>)"
+			if res.PromptTokens > 0 || res.CompletionTokens > 0 {
+				detail = fmt.Sprintf("<b>Google Free Tier</b> (<code>$0.00000</code>)\n├ Token: %d (P: %d, C: %d)",
+					res.PromptTokens+res.CompletionTokens, res.PromptTokens, res.CompletionTokens)
+			}
+			b.sendSuccessResponse(chatID, statusMsgID, res.Text, detail)
 			return
 		}
 
