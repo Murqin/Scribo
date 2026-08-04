@@ -127,4 +127,3 @@ func GetModeKeyboard() tgbotapi.InlineKeyboardMarkup {
 
 	return tgbotapi.InlineKeyboardMarkup{InlineKeyboard: rows}
 }
-

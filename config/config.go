@@ -13,6 +13,8 @@ type Config struct {
 	OpenRouterAPIKey  string
 	GeminiAPIKey      string
 	AllowedUserID     string
+	AllowedUserIDs    []int64
+	AllowAllUsers     bool
 	DefaultModel      string
 	GoogleModel       string
 	OpenRouterModel   string
@@ -30,6 +32,7 @@ func LoadConfig() *Config {
 	geminiKey := getEnv("GEMINI_API_KEY", getEnv("GOOGLE_API_KEY", ""))
 	defaultProvider := strings.ToLower(getEnv("DEFAULT_PROVIDER", getEnv("PROVIDER", "google")))
 
+	allowedRaw := getEnv("ALLOWED_USER_ID", "")
 	maxJobs := 5
 	if val := getEnv("MAX_CONCURRENT_JOBS", ""); val != "" {
 		if parsed, err := strconv.Atoi(val); err == nil && parsed > 0 {
@@ -43,7 +46,9 @@ func LoadConfig() *Config {
 		TelegramToken:     getEnv("TELEGRAM_TOKEN", ""),
 		OpenRouterAPIKey:  getEnv("OPENROUTER_API_KEY", ""),
 		GeminiAPIKey:      geminiKey,
-		AllowedUserID:     getEnv("ALLOWED_USER_ID", ""),
+		AllowedUserID:     allowedRaw,
+		AllowedUserIDs:    parseUserIDs(allowedRaw),
+		AllowAllUsers:     strings.EqualFold(getEnv("ALLOW_ALL_USERS", ""), "true"),
 		DefaultModel:      defaultModel,
 		GoogleModel:       googleModel,
 		OpenRouterModel:   openRouterModel,
@@ -86,10 +91,48 @@ func loadDotEnv(filename string) {
 		if len(parts) == 2 {
 			key := strings.TrimSpace(parts[0])
 			val := strings.TrimSpace(parts[1])
+			// Strip trailing inline comments, but only when unquoted: a '#' inside
+			// quotes can be a legitimate part of a token or password.
+			if !strings.HasPrefix(val, `"`) && !strings.HasPrefix(val, "'") {
+				if idx := strings.Index(val, " #"); idx >= 0 {
+					val = strings.TrimSpace(val[:idx])
+				}
+			}
 			val = strings.Trim(val, `"'`)
 			if os.Getenv(key) == "" {
 				os.Setenv(key, val)
 			}
 		}
 	}
+}
+
+// Redact replaces credentials with a placeholder. Telegram file URLs and the Gemini
+// endpoint carry secrets in the URL itself, and net/http quotes the full URL in its
+// error messages — without this, those errors reach chat messages and logs verbatim.
+func (c *Config) Redact(s string) string {
+	for _, secret := range []string{c.TelegramToken, c.GeminiAPIKey, c.OpenRouterAPIKey} {
+		// Short values are skipped: an empty or 3-character secret would otherwise
+		// replace unrelated substrings all over the message.
+		if len(secret) >= 8 {
+			s = strings.ReplaceAll(s, secret, "[REDACTED]")
+		}
+	}
+	return s
+}
+
+// parseUserIDs reads a comma-separated ALLOWED_USER_ID list. Unparsable entries are
+// dropped rather than failing startup: a typo in one ID must not lock the owner out
+// of a bot that is otherwise correctly configured.
+func parseUserIDs(raw string) []int64 {
+	var ids []int64
+	for _, part := range strings.Split(raw, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		if id, err := strconv.ParseInt(part, 10, 64); err == nil {
+			ids = append(ids, id)
+		}
+	}
+	return ids
 }

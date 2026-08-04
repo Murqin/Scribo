@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -115,5 +116,104 @@ TEST_KEY_3='single_quoted'
 	}
 	if os.Getenv("TEST_KEY_3") != "single_quoted" {
 		t.Errorf("expected single_quoted, got %s", os.Getenv("TEST_KEY_3"))
+	}
+}
+
+func TestRedact(t *testing.T) {
+	cfg := &Config{
+		TelegramToken:    "123456:AAHsuperSECRETtoken",
+		GeminiAPIKey:     "AIzaSyREAL_SECRET_KEY",
+		OpenRouterAPIKey: "sk-or-v1-abcdefghijklmnop",
+	}
+
+	tests := []struct {
+		name string
+		in   string
+	}{
+		{"telegram file url", `Get "https://api.telegram.org/file/bot123456:AAHsuperSECRETtoken/voice/f.oga": no host`},
+		{"gemini generate url", `Post "https://x/v1beta/models/m:generateContent?key=AIzaSyREAL_SECRET_KEY": no host`},
+		{"openrouter key in body", `unauthorized for key sk-or-v1-abcdefghijklmnop`},
+	}
+
+	for _, tt := range tests {
+		got := cfg.Redact(tt.in)
+		if !strings.Contains(got, "[REDACTED]") {
+			t.Errorf("%s: expected redaction placeholder, got %q", tt.name, got)
+		}
+		for _, secret := range []string{cfg.TelegramToken, cfg.GeminiAPIKey, cfg.OpenRouterAPIKey} {
+			if strings.Contains(got, secret) {
+				t.Errorf("%s: secret %q survived redaction in %q", tt.name, secret, got)
+			}
+		}
+	}
+
+	// An empty config must not corrupt the message.
+	empty := &Config{}
+	if got := empty.Redact("hello world"); got != "hello world" {
+		t.Errorf("empty config altered message: got %q", got)
+	}
+}
+
+func TestParseUserIDs(t *testing.T) {
+	tests := []struct {
+		raw  string
+		want int
+	}{
+		{"", 0},
+		{"123", 1},
+		{"123,456", 2},
+		{" 123 , 456 ", 2},
+		{"123,,456", 2},
+		{"123,abc,456", 2},
+		{"abc", 0},
+	}
+
+	for _, tt := range tests {
+		if got := parseUserIDs(tt.raw); len(got) != tt.want {
+			t.Errorf("parseUserIDs(%q) returned %d ids, want %d", tt.raw, len(got), tt.want)
+		}
+	}
+
+	ids := parseUserIDs("111,222")
+	if len(ids) != 2 || ids[0] != 111 || ids[1] != 222 {
+		t.Errorf("parseUserIDs(\"111,222\") = %v, want [111 222]", ids)
+	}
+}
+
+func TestLoadDotEnv_InlineComments(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".env")
+
+	content := "PLAIN=value1 # trailing comment\n" +
+		"QUOTED=\"value with # hash\"\n" +
+		"HASHY=abc#def\n" +
+		"# whole line comment\n" +
+		"CLEAN=value2\n"
+
+	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
+		t.Fatalf("could not write test env file: %v", err)
+	}
+
+	for _, k := range []string{"PLAIN", "QUOTED", "HASHY", "CLEAN"} {
+		os.Unsetenv(k)
+	}
+	t.Cleanup(func() {
+		for _, k := range []string{"PLAIN", "QUOTED", "HASHY", "CLEAN"} {
+			os.Unsetenv(k)
+		}
+	})
+
+	loadDotEnv(path)
+
+	tests := []struct{ key, want string }{
+		{"PLAIN", "value1"},
+		{"QUOTED", "value with # hash"},
+		{"HASHY", "abc#def"},
+		{"CLEAN", "value2"},
+	}
+	for _, tt := range tests {
+		if got := os.Getenv(tt.key); got != tt.want {
+			t.Errorf("%s = %q, want %q", tt.key, got, tt.want)
+		}
 	}
 }

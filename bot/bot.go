@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf16"
+	"unicode/utf8"
 
 	"scribo/config"
 	"scribo/mode"
@@ -86,6 +88,15 @@ func NewBotRunner(cfg *config.Config) (*BotRunner, error) {
 
 	slog.Info("🤖 Telegram Bot yetkilendirildi", "username", bot.Self.UserName, "maxConcurrentJobs", cfg.MaxConcurrentJobs)
 
+	if len(cfg.AllowedUserIDs) == 0 {
+		if cfg.AllowAllUsers {
+			slog.Warn("⚠️ Bot herkese açık (ALLOW_ALL_USERS=true). API kotanız yabancılar tarafından harcanabilir.")
+		} else {
+			slog.Warn("⚠️ ALLOWED_USER_ID tanımlı değil — bot hiçbir kullanıcıya yanıt vermeyecek. " +
+				"Kendi Telegram ID'nizi @userinfobot'tan alıp .env dosyasına yazın.")
+		}
+	}
+
 	return &BotRunner{
 		cfg:                cfg,
 		api:                bot,
@@ -126,10 +137,15 @@ func (b *BotRunner) StartPolling(ctx context.Context) error {
 }
 
 func (b *BotRunner) isAuthorized(userID int64) bool {
-	if b.cfg.AllowedUserID == "" {
-		return true
+	if len(b.cfg.AllowedUserIDs) == 0 {
+		return b.cfg.AllowAllUsers
 	}
-	return fmt.Sprintf("%d", userID) == b.cfg.AllowedUserID
+	for _, id := range b.cfg.AllowedUserIDs {
+		if id == userID {
+			return true
+		}
+	}
+	return false
 }
 
 type AudioTarget struct {
@@ -390,12 +406,18 @@ func (b *BotRunner) processVoice(ctx context.Context, chatID int64, fileID strin
 
 		res, gErr := b.googleProvider.Generate(ctx, systemPrompt, base64Audio, mimeType)
 		if gErr == nil {
-			b.sendSuccessResponse(chatID, statusMsgID, res.Text, "<b>Google Free Tier</b> (<code>$0.00000</code>)")
+			detail := "<b>Google Free Tier</b> (<code>$0.00000</code>)"
+			if res.PromptTokens > 0 || res.CompletionTokens > 0 {
+				detail = fmt.Sprintf("<b>Google Free Tier</b> (<code>$0.00000</code>)\n├ Token: %d (P: %d, C: %d)",
+					res.PromptTokens+res.CompletionTokens, res.PromptTokens, res.CompletionTokens)
+			}
+			b.sendSuccessResponse(chatID, statusMsgID, res.Text, detail)
 			return
 		}
 
-		slog.Warn("Google API başarısız, OpenRouter onayı soruluyor", "error", gErr)
-		errShort := html.EscapeString(gErr.Error())
+		safeErr := b.cfg.Redact(gErr.Error())
+		slog.Warn("Google API başarısız, OpenRouter onayı soruluyor", "error", safeErr)
+		errShort := html.EscapeString(safeErr)
 		if len(errShort) > 200 {
 			errShort = errShort[:200] + "..."
 		}
@@ -439,7 +461,9 @@ func (b *BotRunner) processVoice(ctx context.Context, chatID int64, fileID strin
 }
 
 func (b *BotRunner) sendSuccessResponse(chatID int64, statusMsgID int, cleanText string, costDetail string) {
-	chunks := splitMessage(cleanText, 3800)
+	// Telegram's hard limit is 4096 UTF-16 units; the margin absorbs the <code> wrapper
+	// and HTML entity expansion from html.EscapeString.
+	chunks := splitMessage(cleanText, 3900)
 	if len(chunks) == 0 {
 		chunks = []string{"İşlem tamamlandı."}
 	}
@@ -477,6 +501,7 @@ func (b *BotRunner) sendSuccessResponse(chatID int64, statusMsgID int, cleanText
 }
 
 func (b *BotRunner) sendError(chatID int64, statusMsgID int, modeID string, errText string) {
+	errText = b.cfg.Redact(errText)
 	slog.Error("İşlem hatası", "chatID", chatID, "error", errText)
 	txt := fmt.Sprintf("❌ <b>İşlem Hatası:</b>\n<pre>%s</pre>", html.EscapeString(errText))
 	retryKb := tgbotapi.NewInlineKeyboardMarkup(
@@ -497,25 +522,55 @@ func (b *BotRunner) sendMsg(chg tgbotapi.Chattable) {
 	}
 }
 
-func splitMessage(text string, maxLength int) []string {
+// utf16Len reports the length Telegram actually enforces. The 4096-character message
+// limit counts UTF-16 code units, so emoji and other astral characters cost two.
+func utf16Len(s string) int {
+	return len(utf16.Encode([]rune(s)))
+}
+
+// splitMessage breaks text into chunks that fit Telegram's limit. It iterates runes
+// rather than bytes: slicing by byte offset used to cut multi-byte characters in half,
+// producing invalid UTF-8 that Telegram rejects outright.
+func splitMessage(text string, maxUnits int) []string {
+	text = strings.TrimSpace(text)
 	if text == "" {
 		return nil
 	}
+
 	var chunks []string
-	for len(text) > maxLength {
-		splitIdx := strings.LastIndex(text[:maxLength], "\n")
-		if splitIdx <= 0 {
-			splitIdx = strings.LastIndex(text[:maxLength], " ")
+	for utf16Len(text) > maxUnits {
+		cut, units, lastSpace, lastNewline := 0, 0, -1, -1
+		for i, r := range text {
+			w := 1
+			if r > 0xFFFF {
+				w = 2
+			}
+			if units+w > maxUnits {
+				break
+			}
+			units += w
+			cut = i + utf8.RuneLen(r)
+			if r == '\n' {
+				lastNewline = cut
+			} else if r == ' ' {
+				lastSpace = cut
+			}
 		}
-		if splitIdx <= 0 {
-			splitIdx = maxLength
+
+		// Prefer a line break, then a word break, then the hard rune boundary.
+		split := cut
+		if lastNewline > 0 {
+			split = lastNewline
+		} else if lastSpace > 0 {
+			split = lastSpace
 		}
-		chunks = append(chunks, strings.TrimSpace(text[:splitIdx]))
-		text = strings.TrimSpace(text[splitIdx:])
+
+		chunks = append(chunks, strings.TrimSpace(text[:split]))
+		text = strings.TrimSpace(text[split:])
 	}
+
 	if text != "" {
-		chunks = append(chunks, strings.TrimSpace(text))
+		chunks = append(chunks, text)
 	}
 	return chunks
 }
-

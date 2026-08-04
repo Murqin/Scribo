@@ -263,4 +263,3 @@ func CallOpenRouterAPI(apiKey, model, systemPrompt, base64Audio, mimeType string
 	p := NewOpenRouterProvider(apiKey, model)
 	return p.Generate(context.Background(), systemPrompt, base64Audio, mimeType)
 }
-

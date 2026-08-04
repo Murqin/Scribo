@@ -328,3 +328,85 @@ func TestOpenRouterProvider_Generate_LargeErrorBodyCapped(t *testing.T) {
 		t.Errorf("expected error message length <= 4106 bytes (capped to 4096 body), got %d bytes", len(err.Error()))
 	}
 }
+
+func TestGoogleProvider_Generate_ConcatenatesAllParts(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"candidates":[{"content":{"parts":[
+			{"text":"birinci "},{"thought":true,"text":"GIZLI DUSUNCE"},{"text":"ikinci"}
+		]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":11,"candidatesTokenCount":7}}`))
+	}))
+	defer srv.Close()
+
+	p := NewGoogleProvider("test-key", "test-model")
+	p.BaseURL = srv.URL
+
+	res, err := p.Generate(context.Background(), "prompt", "audio", "audio/ogg")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.Text != "birinci ikinci" {
+		t.Errorf("expected all non-thought parts joined, got %q", res.Text)
+	}
+	if res.PromptTokens != 11 || res.CompletionTokens != 7 {
+		t.Errorf("usage metadata not read: got P=%d C=%d", res.PromptTokens, res.CompletionTokens)
+	}
+}
+
+func TestGoogleProvider_Generate_BlockedPrompt(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"promptFeedback":{"blockReason":"SAFETY"}}`))
+	}))
+	defer srv.Close()
+
+	p := NewGoogleProvider("test-key", "test-model")
+	p.BaseURL = srv.URL
+
+	_, err := p.Generate(context.Background(), "prompt", "audio", "audio/ogg")
+	if err == nil {
+		t.Fatal("expected an error for a blocked prompt")
+	}
+	if !strings.Contains(err.Error(), "SAFETY") {
+		t.Errorf("error should name the block reason, got %q", err.Error())
+	}
+}
+
+func TestGoogleProvider_Generate_MaxTokensMarksTruncation(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"candidates":[{"content":{"parts":[{"text":"yarim kalan"}]},"finishReason":"MAX_TOKENS"}]}`))
+	}))
+	defer srv.Close()
+
+	p := NewGoogleProvider("test-key", "test-model")
+	p.BaseURL = srv.URL
+
+	res, err := p.Generate(context.Background(), "prompt", "audio", "audio/ogg")
+	if err != nil {
+		t.Fatalf("truncation must not be an error, got %v", err)
+	}
+	if !strings.Contains(res.Text, "kesildi") {
+		t.Errorf("expected a truncation notice appended, got %q", res.Text)
+	}
+}
+
+func TestGoogleProvider_Generate_LegacyResponseStillWorks(t *testing.T) {
+	// A response carrying none of the new fields must behave exactly as before.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"candidates":[{"content":{"parts":[{"text":"sade yanit"}]}}]}`))
+	}))
+	defer srv.Close()
+
+	p := NewGoogleProvider("test-key", "test-model")
+	p.BaseURL = srv.URL
+
+	res, err := p.Generate(context.Background(), "prompt", "audio", "audio/ogg")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.Text != "sade yanit" {
+		t.Errorf("got %q, want %q", res.Text, "sade yanit")
+	}
+}

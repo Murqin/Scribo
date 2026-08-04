@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"scribo/config"
 
@@ -133,7 +134,7 @@ func TestIsAuthorized(t *testing.T) {
 	// 1. Restricted User ID
 	runnerRestricted := &BotRunner{
 		cfg: &config.Config{
-			AllowedUserID: "123456",
+			AllowedUserIDs: []int64{123456},
 		},
 	}
 
@@ -145,15 +146,25 @@ func TestIsAuthorized(t *testing.T) {
 		t.Error("user 999999 should not be authorized")
 	}
 
-	// 2. Empty AllowedUserID (Public mode)
-	runnerPublic := &BotRunner{
-		cfg: &config.Config{
-			AllowedUserID: "",
-		},
+	// 2. No allowed IDs configured: deny by default.
+	runnerClosed := &BotRunner{cfg: &config.Config{}}
+	if runnerClosed.isAuthorized(999999) {
+		t.Error("user 999999 must be denied when no allowed IDs are configured")
 	}
 
+	// 3. Explicit opt-out: ALLOW_ALL_USERS=true opens the bot.
+	runnerPublic := &BotRunner{cfg: &config.Config{AllowAllUsers: true}}
 	if !runnerPublic.isAuthorized(999999) {
-		t.Error("user 999999 should be authorized when AllowedUserID is empty")
+		t.Error("user 999999 should be authorized when AllowAllUsers is set")
+	}
+
+	// 4. Multiple IDs are all honoured.
+	runnerMulti := &BotRunner{cfg: &config.Config{AllowedUserIDs: []int64{111, 222}}}
+	if !runnerMulti.isAuthorized(111) || !runnerMulti.isAuthorized(222) {
+		t.Error("both configured IDs should be authorized")
+	}
+	if runnerMulti.isAuthorized(333) {
+		t.Error("unlisted ID 333 must be denied")
 	}
 }
 
@@ -201,7 +212,7 @@ func TestBotRunner_HandleCallbackQuery_Unauthorized(t *testing.T) {
 	mock := &mockTelegramClient{}
 	runner := &BotRunner{
 		cfg: &config.Config{
-			AllowedUserID: "100",
+			AllowedUserIDs: []int64{100},
 		},
 		api: mock,
 	}
@@ -259,5 +270,73 @@ func TestBotRunner_LockUnlock(t *testing.T) {
 
 	if !runner.tryLock("key1") {
 		t.Error("expected tryLock to succeed after unlock")
+	}
+}
+
+func TestSendError_RedactsSecrets(t *testing.T) {
+	mock := &mockTelegramClient{}
+	runner := &BotRunner{
+		cfg: &config.Config{
+			TelegramToken: "123456:AAHsuperSECRETtoken",
+			GeminiAPIKey:  "AIzaSyREAL_SECRET_KEY",
+		},
+		api: mock,
+	}
+
+	runner.sendError(1, 2, "tldr",
+		`Get "https://api.telegram.org/file/bot123456:AAHsuperSECRETtoken/f.oga": dial tcp: no host`)
+
+	if len(mock.sentMessages) != 1 {
+		t.Fatalf("expected 1 sent message, got %d", len(mock.sentMessages))
+	}
+
+	edit, ok := mock.sentMessages[0].(tgbotapi.EditMessageTextConfig)
+	if !ok {
+		t.Fatalf("expected EditMessageTextConfig, got %T", mock.sentMessages[0])
+	}
+	if strings.Contains(edit.Text, "AAHsuperSECRETtoken") {
+		t.Errorf("bot token leaked into user-facing message: %q", edit.Text)
+	}
+	if !strings.Contains(edit.Text, "[REDACTED]") {
+		t.Errorf("expected redaction placeholder in message, got %q", edit.Text)
+	}
+}
+
+func TestSplitMessage_MultiByteSafety(t *testing.T) {
+	tests := []struct {
+		name     string
+		text     string
+		maxUnits int
+	}{
+		{"turkish without spaces", strings.Repeat("ğ", 100), 51},
+		{"emoji", strings.Repeat("🎙", 60), 40},
+		{"cjk", strings.Repeat("音", 100), 30},
+		{"ordinary prose", strings.Repeat("merhaba dünya ", 50), 40},
+		{"newline heavy", strings.Repeat("satır bir\n", 30), 35},
+	}
+
+	for _, tt := range tests {
+		chunks := splitMessage(tt.text, tt.maxUnits)
+		if len(chunks) == 0 {
+			t.Fatalf("%s: expected at least one chunk", tt.name)
+		}
+
+		var rejoined strings.Builder
+		for i, c := range chunks {
+			if !utf8.ValidString(c) {
+				t.Errorf("%s: chunk %d is not valid UTF-8", tt.name, i)
+			}
+			if utf16Len(c) > tt.maxUnits {
+				t.Errorf("%s: chunk %d is %d UTF-16 units, limit is %d",
+					tt.name, i, utf16Len(c), tt.maxUnits)
+			}
+			rejoined.WriteString(c)
+		}
+
+		// Whitespace moves around at chunk boundaries; compare with it removed.
+		strip := func(s string) string { return strings.Join(strings.Fields(s), "") }
+		if strip(rejoined.String()) != strip(tt.text) {
+			t.Errorf("%s: content lost while splitting", tt.name)
+		}
 	}
 }
