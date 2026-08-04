@@ -153,3 +153,29 @@ func TestRedact(t *testing.T) {
 		t.Errorf("empty config altered message: got %q", got)
 	}
 }
+
+func TestParseUserIDs(t *testing.T) {
+	tests := []struct {
+		raw  string
+		want int
+	}{
+		{"", 0},
+		{"123", 1},
+		{"123,456", 2},
+		{" 123 , 456 ", 2},
+		{"123,,456", 2},
+		{"123,abc,456", 2},
+		{"abc", 0},
+	}
+
+	for _, tt := range tests {
+		if got := parseUserIDs(tt.raw); len(got) != tt.want {
+			t.Errorf("parseUserIDs(%q) returned %d ids, want %d", tt.raw, len(got), tt.want)
+		}
+	}
+
+	ids := parseUserIDs("111,222")
+	if len(ids) != 2 || ids[0] != 111 || ids[1] != 222 {
+		t.Errorf("parseUserIDs(\"111,222\") = %v, want [111 222]", ids)
+	}
+}

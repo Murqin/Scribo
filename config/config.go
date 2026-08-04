@@ -13,6 +13,8 @@ type Config struct {
 	OpenRouterAPIKey  string
 	GeminiAPIKey      string
 	AllowedUserID     string
+	AllowedUserIDs    []int64
+	AllowAllUsers     bool
 	DefaultModel      string
 	GoogleModel       string
 	OpenRouterModel   string
@@ -30,6 +32,7 @@ func LoadConfig() *Config {
 	geminiKey := getEnv("GEMINI_API_KEY", getEnv("GOOGLE_API_KEY", ""))
 	defaultProvider := strings.ToLower(getEnv("DEFAULT_PROVIDER", getEnv("PROVIDER", "google")))
 
+	allowedRaw := getEnv("ALLOWED_USER_ID", "")
 	maxJobs := 5
 	if val := getEnv("MAX_CONCURRENT_JOBS", ""); val != "" {
 		if parsed, err := strconv.Atoi(val); err == nil && parsed > 0 {
@@ -43,7 +46,9 @@ func LoadConfig() *Config {
 		TelegramToken:     getEnv("TELEGRAM_TOKEN", ""),
 		OpenRouterAPIKey:  getEnv("OPENROUTER_API_KEY", ""),
 		GeminiAPIKey:      geminiKey,
-		AllowedUserID:     getEnv("ALLOWED_USER_ID", ""),
+		AllowedUserID:     allowedRaw,
+		AllowedUserIDs:    parseUserIDs(allowedRaw),
+		AllowAllUsers:     strings.EqualFold(getEnv("ALLOW_ALL_USERS", ""), "true"),
 		DefaultModel:      defaultModel,
 		GoogleModel:       googleModel,
 		OpenRouterModel:   openRouterModel,
@@ -106,4 +111,21 @@ func (c *Config) Redact(s string) string {
 		}
 	}
 	return s
+}
+
+// parseUserIDs reads a comma-separated ALLOWED_USER_ID list. Unparsable entries are
+// dropped rather than failing startup: a typo in one ID must not lock the owner out
+// of a bot that is otherwise correctly configured.
+func parseUserIDs(raw string) []int64 {
+	var ids []int64
+	for _, part := range strings.Split(raw, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		if id, err := strconv.ParseInt(part, 10, 64); err == nil {
+			ids = append(ids, id)
+		}
+	}
+	return ids
 }

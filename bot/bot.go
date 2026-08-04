@@ -86,6 +86,15 @@ func NewBotRunner(cfg *config.Config) (*BotRunner, error) {
 
 	slog.Info("🤖 Telegram Bot yetkilendirildi", "username", bot.Self.UserName, "maxConcurrentJobs", cfg.MaxConcurrentJobs)
 
+	if len(cfg.AllowedUserIDs) == 0 {
+		if cfg.AllowAllUsers {
+			slog.Warn("⚠️ Bot herkese açık (ALLOW_ALL_USERS=true). API kotanız yabancılar tarafından harcanabilir.")
+		} else {
+			slog.Warn("⚠️ ALLOWED_USER_ID tanımlı değil — bot hiçbir kullanıcıya yanıt vermeyecek. " +
+				"Kendi Telegram ID'nizi @userinfobot'tan alıp .env dosyasına yazın.")
+		}
+	}
+
 	return &BotRunner{
 		cfg:                cfg,
 		api:                bot,
@@ -126,10 +135,15 @@ func (b *BotRunner) StartPolling(ctx context.Context) error {
 }
 
 func (b *BotRunner) isAuthorized(userID int64) bool {
-	if b.cfg.AllowedUserID == "" {
-		return true
+	if len(b.cfg.AllowedUserIDs) == 0 {
+		return b.cfg.AllowAllUsers
 	}
-	return fmt.Sprintf("%d", userID) == b.cfg.AllowedUserID
+	for _, id := range b.cfg.AllowedUserIDs {
+		if id == userID {
+			return true
+		}
+	}
+	return false
 }
 
 type AudioTarget struct {

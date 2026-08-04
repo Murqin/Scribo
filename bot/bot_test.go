@@ -133,7 +133,7 @@ func TestIsAuthorized(t *testing.T) {
 	// 1. Restricted User ID
 	runnerRestricted := &BotRunner{
 		cfg: &config.Config{
-			AllowedUserID: "123456",
+			AllowedUserIDs: []int64{123456},
 		},
 	}
 
@@ -145,15 +145,25 @@ func TestIsAuthorized(t *testing.T) {
 		t.Error("user 999999 should not be authorized")
 	}
 
-	// 2. Empty AllowedUserID (Public mode)
-	runnerPublic := &BotRunner{
-		cfg: &config.Config{
-			AllowedUserID: "",
-		},
+	// 2. No allowed IDs configured: deny by default.
+	runnerClosed := &BotRunner{cfg: &config.Config{}}
+	if runnerClosed.isAuthorized(999999) {
+		t.Error("user 999999 must be denied when no allowed IDs are configured")
 	}
 
+	// 3. Explicit opt-out: ALLOW_ALL_USERS=true opens the bot.
+	runnerPublic := &BotRunner{cfg: &config.Config{AllowAllUsers: true}}
 	if !runnerPublic.isAuthorized(999999) {
-		t.Error("user 999999 should be authorized when AllowedUserID is empty")
+		t.Error("user 999999 should be authorized when AllowAllUsers is set")
+	}
+
+	// 4. Multiple IDs are all honoured.
+	runnerMulti := &BotRunner{cfg: &config.Config{AllowedUserIDs: []int64{111, 222}}}
+	if !runnerMulti.isAuthorized(111) || !runnerMulti.isAuthorized(222) {
+		t.Error("both configured IDs should be authorized")
+	}
+	if runnerMulti.isAuthorized(333) {
+		t.Error("unlisted ID 333 must be denied")
 	}
 }
 
@@ -201,7 +211,7 @@ func TestBotRunner_HandleCallbackQuery_Unauthorized(t *testing.T) {
 	mock := &mockTelegramClient{}
 	runner := &BotRunner{
 		cfg: &config.Config{
-			AllowedUserID: "100",
+			AllowedUserIDs: []int64{100},
 		},
 		api: mock,
 	}
