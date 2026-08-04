@@ -179,3 +179,41 @@ func TestParseUserIDs(t *testing.T) {
 		t.Errorf("parseUserIDs(\"111,222\") = %v, want [111 222]", ids)
 	}
 }
+
+func TestLoadDotEnv_InlineComments(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".env")
+
+	content := "PLAIN=value1 # trailing comment\n" +
+		"QUOTED=\"value with # hash\"\n" +
+		"HASHY=abc#def\n" +
+		"# whole line comment\n" +
+		"CLEAN=value2\n"
+
+	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
+		t.Fatalf("could not write test env file: %v", err)
+	}
+
+	for _, k := range []string{"PLAIN", "QUOTED", "HASHY", "CLEAN"} {
+		os.Unsetenv(k)
+	}
+	t.Cleanup(func() {
+		for _, k := range []string{"PLAIN", "QUOTED", "HASHY", "CLEAN"} {
+			os.Unsetenv(k)
+		}
+	})
+
+	loadDotEnv(path)
+
+	tests := []struct{ key, want string }{
+		{"PLAIN", "value1"},
+		{"QUOTED", "value with # hash"},
+		{"HASHY", "abc#def"},
+		{"CLEAN", "value2"},
+	}
+	for _, tt := range tests {
+		if got := os.Getenv(tt.key); got != tt.want {
+			t.Errorf("%s = %q, want %q", tt.key, got, tt.want)
+		}
+	}
+}

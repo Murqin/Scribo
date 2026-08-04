@@ -91,6 +91,13 @@ func loadDotEnv(filename string) {
 		if len(parts) == 2 {
 			key := strings.TrimSpace(parts[0])
 			val := strings.TrimSpace(parts[1])
+			// Strip trailing inline comments, but only when unquoted: a '#' inside
+			// quotes can be a legitimate part of a token or password.
+			if !strings.HasPrefix(val, `"`) && !strings.HasPrefix(val, "'") {
+				if idx := strings.Index(val, " #"); idx >= 0 {
+					val = strings.TrimSpace(val[:idx])
+				}
+			}
 			val = strings.Trim(val, `"'`)
 			if os.Getenv(key) == "" {
 				os.Setenv(key, val)
