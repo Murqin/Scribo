@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -115,5 +116,40 @@ TEST_KEY_3='single_quoted'
 	}
 	if os.Getenv("TEST_KEY_3") != "single_quoted" {
 		t.Errorf("expected single_quoted, got %s", os.Getenv("TEST_KEY_3"))
+	}
+}
+
+func TestRedact(t *testing.T) {
+	cfg := &Config{
+		TelegramToken:    "123456:AAHsuperSECRETtoken",
+		GeminiAPIKey:     "AIzaSyREAL_SECRET_KEY",
+		OpenRouterAPIKey: "sk-or-v1-abcdefghijklmnop",
+	}
+
+	tests := []struct {
+		name string
+		in   string
+	}{
+		{"telegram file url", `Get "https://api.telegram.org/file/bot123456:AAHsuperSECRETtoken/voice/f.oga": no host`},
+		{"gemini generate url", `Post "https://x/v1beta/models/m:generateContent?key=AIzaSyREAL_SECRET_KEY": no host`},
+		{"openrouter key in body", `unauthorized for key sk-or-v1-abcdefghijklmnop`},
+	}
+
+	for _, tt := range tests {
+		got := cfg.Redact(tt.in)
+		if !strings.Contains(got, "[REDACTED]") {
+			t.Errorf("%s: expected redaction placeholder, got %q", tt.name, got)
+		}
+		for _, secret := range []string{cfg.TelegramToken, cfg.GeminiAPIKey, cfg.OpenRouterAPIKey} {
+			if strings.Contains(got, secret) {
+				t.Errorf("%s: secret %q survived redaction in %q", tt.name, secret, got)
+			}
+		}
+	}
+
+	// An empty config must not corrupt the message.
+	empty := &Config{}
+	if got := empty.Redact("hello world"); got != "hello world" {
+		t.Errorf("empty config altered message: got %q", got)
 	}
 }

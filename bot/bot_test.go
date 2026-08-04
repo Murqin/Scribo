@@ -261,3 +261,32 @@ func TestBotRunner_LockUnlock(t *testing.T) {
 		t.Error("expected tryLock to succeed after unlock")
 	}
 }
+
+func TestSendError_RedactsSecrets(t *testing.T) {
+	mock := &mockTelegramClient{}
+	runner := &BotRunner{
+		cfg: &config.Config{
+			TelegramToken: "123456:AAHsuperSECRETtoken",
+			GeminiAPIKey:  "AIzaSyREAL_SECRET_KEY",
+		},
+		api: mock,
+	}
+
+	runner.sendError(1, 2, "tldr",
+		`Get "https://api.telegram.org/file/bot123456:AAHsuperSECRETtoken/f.oga": dial tcp: no host`)
+
+	if len(mock.sentMessages) != 1 {
+		t.Fatalf("expected 1 sent message, got %d", len(mock.sentMessages))
+	}
+
+	edit, ok := mock.sentMessages[0].(tgbotapi.EditMessageTextConfig)
+	if !ok {
+		t.Fatalf("expected EditMessageTextConfig, got %T", mock.sentMessages[0])
+	}
+	if strings.Contains(edit.Text, "AAHsuperSECRETtoken") {
+		t.Errorf("bot token leaked into user-facing message: %q", edit.Text)
+	}
+	if !strings.Contains(edit.Text, "[REDACTED]") {
+		t.Errorf("expected redaction placeholder in message, got %q", edit.Text)
+	}
+}

@@ -394,8 +394,9 @@ func (b *BotRunner) processVoice(ctx context.Context, chatID int64, fileID strin
 			return
 		}
 
-		slog.Warn("Google API başarısız, OpenRouter onayı soruluyor", "error", gErr)
-		errShort := html.EscapeString(gErr.Error())
+		safeErr := b.cfg.Redact(gErr.Error())
+		slog.Warn("Google API başarısız, OpenRouter onayı soruluyor", "error", safeErr)
+		errShort := html.EscapeString(safeErr)
 		if len(errShort) > 200 {
 			errShort = errShort[:200] + "..."
 		}
@@ -477,6 +478,7 @@ func (b *BotRunner) sendSuccessResponse(chatID int64, statusMsgID int, cleanText
 }
 
 func (b *BotRunner) sendError(chatID int64, statusMsgID int, modeID string, errText string) {
+	errText = b.cfg.Redact(errText)
 	slog.Error("İşlem hatası", "chatID", chatID, "error", errText)
 	txt := fmt.Sprintf("❌ <b>İşlem Hatası:</b>\n<pre>%s</pre>", html.EscapeString(errText))
 	retryKb := tgbotapi.NewInlineKeyboardMarkup(

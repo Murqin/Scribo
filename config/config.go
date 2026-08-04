@@ -93,3 +93,17 @@ func loadDotEnv(filename string) {
 		}
 	}
 }
+
+// Redact replaces credentials with a placeholder. Telegram file URLs and the Gemini
+// endpoint carry secrets in the URL itself, and net/http quotes the full URL in its
+// error messages — without this, those errors reach chat messages and logs verbatim.
+func (c *Config) Redact(s string) string {
+	for _, secret := range []string{c.TelegramToken, c.GeminiAPIKey, c.OpenRouterAPIKey} {
+		// Short values are skipped: an empty or 3-character secret would otherwise
+		// replace unrelated substrings all over the message.
+		if len(secret) >= 8 {
+			s = strings.ReplaceAll(s, secret, "[REDACTED]")
+		}
+	}
+	return s
+}
