@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"scribo/config"
 
@@ -298,5 +299,44 @@ func TestSendError_RedactsSecrets(t *testing.T) {
 	}
 	if !strings.Contains(edit.Text, "[REDACTED]") {
 		t.Errorf("expected redaction placeholder in message, got %q", edit.Text)
+	}
+}
+
+func TestSplitMessage_MultiByteSafety(t *testing.T) {
+	tests := []struct {
+		name     string
+		text     string
+		maxUnits int
+	}{
+		{"turkish without spaces", strings.Repeat("ğ", 100), 51},
+		{"emoji", strings.Repeat("🎙", 60), 40},
+		{"cjk", strings.Repeat("音", 100), 30},
+		{"ordinary prose", strings.Repeat("merhaba dünya ", 50), 40},
+		{"newline heavy", strings.Repeat("satır bir\n", 30), 35},
+	}
+
+	for _, tt := range tests {
+		chunks := splitMessage(tt.text, tt.maxUnits)
+		if len(chunks) == 0 {
+			t.Fatalf("%s: expected at least one chunk", tt.name)
+		}
+
+		var rejoined strings.Builder
+		for i, c := range chunks {
+			if !utf8.ValidString(c) {
+				t.Errorf("%s: chunk %d is not valid UTF-8", tt.name, i)
+			}
+			if utf16Len(c) > tt.maxUnits {
+				t.Errorf("%s: chunk %d is %d UTF-16 units, limit is %d",
+					tt.name, i, utf16Len(c), tt.maxUnits)
+			}
+			rejoined.WriteString(c)
+		}
+
+		// Whitespace moves around at chunk boundaries; compare with it removed.
+		strip := func(s string) string { return strings.Join(strings.Fields(s), "") }
+		if strip(rejoined.String()) != strip(tt.text) {
+			t.Errorf("%s: content lost while splitting", tt.name)
+		}
 	}
 }

@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf16"
+	"unicode/utf8"
 
 	"scribo/config"
 	"scribo/mode"
@@ -454,7 +456,9 @@ func (b *BotRunner) processVoice(ctx context.Context, chatID int64, fileID strin
 }
 
 func (b *BotRunner) sendSuccessResponse(chatID int64, statusMsgID int, cleanText string, costDetail string) {
-	chunks := splitMessage(cleanText, 3800)
+	// Telegram's hard limit is 4096 UTF-16 units; the margin absorbs the <code> wrapper
+	// and HTML entity expansion from html.EscapeString.
+	chunks := splitMessage(cleanText, 3900)
 	if len(chunks) == 0 {
 		chunks = []string{"İşlem tamamlandı."}
 	}
@@ -513,25 +517,55 @@ func (b *BotRunner) sendMsg(chg tgbotapi.Chattable) {
 	}
 }
 
-func splitMessage(text string, maxLength int) []string {
+// utf16Len reports the length Telegram actually enforces. The 4096-character message
+// limit counts UTF-16 code units, so emoji and other astral characters cost two.
+func utf16Len(s string) int {
+	return len(utf16.Encode([]rune(s)))
+}
+
+// splitMessage breaks text into chunks that fit Telegram's limit. It iterates runes
+// rather than bytes: slicing by byte offset used to cut multi-byte characters in half,
+// producing invalid UTF-8 that Telegram rejects outright.
+func splitMessage(text string, maxUnits int) []string {
+	text = strings.TrimSpace(text)
 	if text == "" {
 		return nil
 	}
+
 	var chunks []string
-	for len(text) > maxLength {
-		splitIdx := strings.LastIndex(text[:maxLength], "\n")
-		if splitIdx <= 0 {
-			splitIdx = strings.LastIndex(text[:maxLength], " ")
+	for utf16Len(text) > maxUnits {
+		cut, units, lastSpace, lastNewline := 0, 0, -1, -1
+		for i, r := range text {
+			w := 1
+			if r > 0xFFFF {
+				w = 2
+			}
+			if units+w > maxUnits {
+				break
+			}
+			units += w
+			cut = i + utf8.RuneLen(r)
+			if r == '\n' {
+				lastNewline = cut
+			} else if r == ' ' {
+				lastSpace = cut
+			}
 		}
-		if splitIdx <= 0 {
-			splitIdx = maxLength
+
+		// Prefer a line break, then a word break, then the hard rune boundary.
+		split := cut
+		if lastNewline > 0 {
+			split = lastNewline
+		} else if lastSpace > 0 {
+			split = lastSpace
 		}
-		chunks = append(chunks, strings.TrimSpace(text[:splitIdx]))
-		text = strings.TrimSpace(text[splitIdx:])
+
+		chunks = append(chunks, strings.TrimSpace(text[:split]))
+		text = strings.TrimSpace(text[split:])
 	}
+
 	if text != "" {
-		chunks = append(chunks, strings.TrimSpace(text))
+		chunks = append(chunks, text)
 	}
 	return chunks
 }
-
