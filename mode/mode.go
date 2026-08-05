@@ -14,10 +14,34 @@ import (
 //go:embed default_modes.json
 var defaultModesJSON []byte
 
+// Format selects how a mode's output is rendered in Telegram. Wrapping everything in
+// <code> is right for transcripts (one tap copies them) but destroys the markdown that
+// prose-oriented modes ask the model for, so each mode declares its own.
+type Format string
+
+const (
+	// FormatCode wraps the output in <code> for tap-to-copy. Default for modes that
+	// do not declare a format, so existing modes.json files keep their behaviour.
+	FormatCode Format = "code"
+	// FormatMarkdown renders the model's markdown as Telegram HTML.
+	FormatMarkdown Format = "markdown"
+	// FormatPlain sends the text verbatim, with no parse mode.
+	FormatPlain Format = "plain"
+)
+
+func (f Format) valid() bool {
+	switch f {
+	case FormatCode, FormatMarkdown, FormatPlain:
+		return true
+	}
+	return false
+}
+
 type ModeInfo struct {
 	ID     string `json:"id,omitempty"`
 	Label  string `json:"label"`
 	Prompt string `json:"prompt"`
+	Format Format `json:"format,omitempty"`
 }
 
 var (
@@ -26,6 +50,12 @@ var (
 )
 
 func init() {
+	LoadDefaultModes()
+}
+
+// LoadDefaultModes restores the embedded mode set, discarding anything loaded from
+// disk. Modes live in package-level state, so tests that swap them need a way back.
+func LoadDefaultModes() {
 	LoadModesFromBytes(defaultModesJSON, "gömülü varsayılan modlar")
 }
 
@@ -46,6 +76,12 @@ func LoadModesFromBytes(data []byte, sourceName string) bool {
 	newModes := make(map[string]ModeInfo, len(customModes))
 	for id, m := range customModes {
 		m.ID = id
+		if !m.Format.valid() {
+			if m.Format != "" {
+				slog.Warn("⚠️ Bilinmeyen format, 'code' varsayılıyor", "source", sourceName, "mode", id, "format", m.Format)
+			}
+			m.Format = FormatCode
+		}
 		newModes[id] = m
 	}
 

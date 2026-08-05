@@ -7,6 +7,7 @@ import (
 	"unicode/utf8"
 
 	"scribo/config"
+	"scribo/mode"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
@@ -236,7 +237,7 @@ func TestBotRunner_SendSuccessResponse_TapToCopyCodeFormatting(t *testing.T) {
 		api: mock,
 	}
 
-	runner.sendSuccessResponse(12345, 99, "Hello <World>", "cost info")
+	runner.sendSuccessResponse(12345, 99, "Hello <World>", "cost info", mode.FormatCode)
 
 	if len(mock.sentMessages) == 0 {
 		t.Fatal("expected sent messages, got 0")

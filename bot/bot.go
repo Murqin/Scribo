@@ -411,7 +411,7 @@ func (b *BotRunner) processVoice(ctx context.Context, chatID int64, fileID strin
 				detail = fmt.Sprintf("<b>Google Free Tier</b> (<code>$0.00000</code>)\n├ Token: %d (P: %d, C: %d)",
 					res.PromptTokens+res.CompletionTokens, res.PromptTokens, res.CompletionTokens)
 			}
-			b.sendSuccessResponse(chatID, statusMsgID, res.Text, detail)
+			b.sendSuccessResponse(chatID, statusMsgID, res.Text, detail, modeInfo.Format)
 			return
 		}
 
@@ -457,25 +457,23 @@ func (b *BotRunner) processVoice(ctx context.Context, chatID int64, fileID strin
 	costInfo := fmt.Sprintf("<b>OpenRouter</b>\n├ Token: %d (P: %d, C: %d)\n└ Maliyet: <code>$%s</code>",
 		res.PromptTokens+res.CompletionTokens, res.PromptTokens, res.CompletionTokens, fmt.Sprintf("%.5f", res.TotalCost))
 
-	b.sendSuccessResponse(chatID, statusMsgID, res.Text, costInfo)
+	b.sendSuccessResponse(chatID, statusMsgID, res.Text, costInfo, modeInfo.Format)
 }
 
-func (b *BotRunner) sendSuccessResponse(chatID int64, statusMsgID int, cleanText string, costDetail string) {
-	// Telegram's hard limit is 4096 UTF-16 units; the margin absorbs the <code> wrapper
-	// and HTML entity expansion from html.EscapeString.
-	chunks := splitMessage(cleanText, 3900)
+func (b *BotRunner) sendSuccessResponse(chatID int64, statusMsgID int, cleanText string, costDetail string, format mode.Format) {
+	chunks := splitForFormat(cleanText, format)
 	if len(chunks) == 0 {
 		chunks = []string{"İşlem tamamlandı."}
 	}
 
-	firstChunkText := fmt.Sprintf("<code>%s</code>", html.EscapeString(chunks[0]))
+	firstChunkText, firstParseMode := renderChunk(chunks[0], format)
 	kb := mode.GetModeKeyboard()
 
 	editMsg := tgbotapi.NewEditMessageText(chatID, statusMsgID, firstChunkText)
-	editMsg.ParseMode = tgbotapi.ModeHTML
+	editMsg.ParseMode = firstParseMode
 	editMsg.ReplyMarkup = &kb
 	_, err := b.api.Send(editMsg)
-	if err != nil {
+	if err != nil && firstParseMode != "" {
 		// Fallback to plain text if HTML parsing fails
 		editMsg.ParseMode = ""
 		editMsg.Text = chunks[0]
@@ -483,11 +481,11 @@ func (b *BotRunner) sendSuccessResponse(chatID int64, statusMsgID int, cleanText
 	}
 
 	for _, c := range chunks[1:] {
-		chunkText := fmt.Sprintf("<code>%s</code>", html.EscapeString(c))
+		chunkText, parseMode := renderChunk(c, format)
 		msg := tgbotapi.NewMessage(chatID, chunkText)
-		msg.ParseMode = tgbotapi.ModeHTML
+		msg.ParseMode = parseMode
 		_, err := b.api.Send(msg)
-		if err != nil {
+		if err != nil && parseMode != "" {
 			msg.ParseMode = ""
 			msg.Text = c
 			b.sendMsg(msg)
