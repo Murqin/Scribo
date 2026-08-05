@@ -18,6 +18,7 @@ import (
 
 	"scribo/budget"
 	"scribo/config"
+	"scribo/history"
 	"scribo/mode"
 	"scribo/provider"
 
@@ -38,6 +39,7 @@ type BotRunner struct {
 	googleProvider     provider.AIProvider
 	openRouterProvider provider.AIProvider
 	budget             *budget.Tracker
+	history            *history.Store
 	httpClient         *http.Client
 	locksMu            sync.Mutex
 	activeLocks        map[string]bool
@@ -100,16 +102,53 @@ func NewBotRunner(cfg *config.Config) (*BotRunner, error) {
 		}
 	}
 
+	store, err := history.Open(cfg.HistoryFile)
+	if err != nil {
+		return nil, fmt.Errorf("geçmiş dosyası açılamadı (%s): %w", cfg.HistoryFile, err)
+	}
+	if store == nil {
+		slog.Warn("⚠️ HISTORY_FILE boş — çıktılar kaydedilmeyecek ve harcama sayacı her yeniden başlatmada sıfırlanacak.")
+	}
+
+	tracker := budget.New(cfg.DailyCostLimit, cfg.MonthlyCostLimit)
+	if err := seedBudget(tracker, store, cfg); err != nil {
+		return nil, err
+	}
+
 	return &BotRunner{
 		cfg:                cfg,
 		api:                bot,
 		googleProvider:     provider.NewGoogleProvider(cfg.GeminiAPIKey, cfg.GoogleModel),
 		openRouterProvider: provider.NewOpenRouterProvider(cfg.OpenRouterAPIKey, cfg.OpenRouterModel),
-		budget:             budget.New(cfg.DailyCostLimit, cfg.MonthlyCostLimit),
+		budget:             tracker,
+		history:            store,
 		httpClient:         &http.Client{Timeout: 60 * time.Second},
 		activeLocks:        make(map[string]bool),
 		workerSem:          make(chan struct{}, cfg.MaxConcurrentJobs),
 	}, nil
+}
+
+// seedBudget restores today's and this month's spend from the history file.
+//
+// An unreadable history is fatal only when a ceiling is configured: starting
+// from zero would silently hand out a second full allowance, which is exactly
+// the failure the ceiling exists to prevent. Without a ceiling the same error is
+// a warning, because nothing depends on the number.
+func seedBudget(tracker *budget.Tracker, store *history.Store, cfg *config.Config) error {
+	daily, monthly, err := store.Spend(time.Now())
+	if err != nil {
+		if cfg.DailyCostLimit > 0 || cfg.MonthlyCostLimit > 0 {
+			return fmt.Errorf("harcama tavanı tanımlı ancak geçmiş okunamadı (%s): %w", store.Path(), err)
+		}
+		slog.Warn("⚠️ Geçmiş okunamadı, harcama sayacı sıfırdan başlıyor", "error", err)
+		return nil
+	}
+
+	tracker.Seed(daily, monthly)
+	if daily > 0 || monthly > 0 {
+		slog.Info("💰 Harcama sayacı geçmişten yüklendi", "daily", daily, "monthly", monthly)
+	}
+	return nil
 }
 
 func (b *BotRunner) StartPolling(ctx context.Context) error {
@@ -297,11 +336,17 @@ func (b *BotRunner) handleMessage(ctx context.Context, msg *tgbotapi.Message) {
 		return
 	}
 
-	if msg.IsCommand() && msg.Command() == "start" {
-		reply := tgbotapi.NewMessage(msg.Chat.ID, "🎙️ <b>Scribo Bot Hazır!</b>\nBir ses kaydı, video, video mesajı veya ses dosyası gönderin.")
-		reply.ParseMode = tgbotapi.ModeHTML
-		b.sendMsg(reply)
-		return
+	if msg.IsCommand() {
+		switch msg.Command() {
+		case "start":
+			reply := tgbotapi.NewMessage(msg.Chat.ID, "🎙️ <b>Scribo Bot Hazır!</b>\nBir ses kaydı, video, video mesajı veya ses dosyası gönderin.\n\n/son — en son üretilen çıktıyı tekrar gösterir.")
+			reply.ParseMode = tgbotapi.ModeHTML
+			b.sendMsg(reply)
+			return
+		case "son":
+			b.sendLastEntry(msg.Chat.ID, msg.MessageID)
+			return
+		}
 	}
 
 	audioTarget := extractAudioTarget(msg)
@@ -489,6 +534,7 @@ func (b *BotRunner) processVoice(ctx context.Context, chatID int64, fileID strin
 				detail = fmt.Sprintf("<b>Google Free Tier</b> (<code>$0.00000</code>)\n├ Token: %d (P: %d, C: %d)",
 					res.PromptTokens+res.CompletionTokens, res.PromptTokens, res.CompletionTokens)
 			}
+			b.record(chatID, modeInfo, "google", mimeType, res)
 			b.sendSuccessResponse(chatID, statusMsgID, res.Text, detail, modeInfo.Format)
 			return
 		}
@@ -567,6 +613,7 @@ func (b *BotRunner) processVoice(ctx context.Context, chatID int64, fileID strin
 	}
 
 	b.budget.Record(res.TotalCost)
+	b.record(chatID, modeInfo, "openrouter", mimeType, res)
 
 	costLine, budgetLine := "└", ""
 	if line := budgetSummaryLine(b.budget.Snapshot()); line != "" {
@@ -577,6 +624,75 @@ func (b *BotRunner) processVoice(ctx context.Context, chatID int64, fileID strin
 		costLine, fmt.Sprintf("%.5f", res.TotalCost), budgetLine)
 
 	b.sendSuccessResponse(chatID, statusMsgID, res.Text, costInfo, modeInfo.Format)
+}
+
+// record archives a finished run. A failed write is logged and swallowed: the
+// user is about to receive the transcript either way, and an unwritable archive
+// is no reason to withhold work that has already been paid for.
+//
+// The cost recorded here is what seeds the spending ceiling on the next start,
+// so the warning says plainly what a lost line costs.
+func (b *BotRunner) record(chatID int64, modeInfo mode.ModeInfo, providerName, mimeType string, res *provider.AIResult) {
+	err := b.history.Append(history.Entry{
+		At:               time.Now(),
+		ChatID:           chatID,
+		Mode:             modeInfo.ID,
+		Format:           string(modeInfo.Format),
+		Provider:         providerName,
+		MimeType:         mimeType,
+		Text:             res.Text,
+		PromptTokens:     res.PromptTokens,
+		CompletionTokens: res.CompletionTokens,
+		Cost:             res.TotalCost,
+	})
+	if err != nil {
+		slog.Error("Geçmişe yazılamadı; bu çıktı /son ile geri alınamayacak ve maliyeti yeniden başlatmada unutulacak",
+			"error", err, "cost", res.TotalCost)
+	}
+}
+
+// sendLastEntry answers /son with the most recent output of this chat, rendered
+// the way its mode would have rendered it live.
+func (b *BotRunner) sendLastEntry(chatID int64, replyTo int) {
+	reply := func(text string) {
+		msg := tgbotapi.NewMessage(chatID, text)
+		msg.ReplyToMessageID = replyTo
+		b.sendMsg(msg)
+	}
+
+	if b.history == nil {
+		reply("📭 Geçmiş kapalı (HISTORY_FILE tanımsız), önceki çıktılar saklanmıyor.")
+		return
+	}
+
+	entry, found, err := b.history.Last(chatID)
+	if err != nil {
+		slog.Error("Geçmiş okunamadı", "error", err)
+		reply("❌ Geçmiş okunamadı.")
+		return
+	}
+	if !found {
+		reply("📭 Bu sohbette kayıtlı çıktı yok. Bir ses kaydı gönderip bir mod seçin.")
+		return
+	}
+
+	label := entry.Mode
+	if m, ok := mode.GetMode(entry.Mode); ok && m.Label != "" {
+		label = m.Label
+	}
+
+	header := tgbotapi.NewMessage(chatID, fmt.Sprintf("📄 <b>Son çıktı</b>\n└ %s · %s · %s",
+		html.EscapeString(label), html.EscapeString(entry.Provider),
+		entry.At.Local().Format("02.01.2006 15:04")))
+	header.ParseMode = tgbotapi.ModeHTML
+	header.ReplyToMessageID = replyTo
+	b.sendMsg(header)
+
+	// An unknown stored format is not worth rejecting the entry over: renderChunk
+	// falls back to <code>, which is what the mode would have used anyway.
+	for _, chunk := range splitForFormat(entry.Text, mode.Format(entry.Format)) {
+		b.sendChunk(chatID, chunk, mode.Format(entry.Format))
+	}
 }
 
 // budgetRefusalText explains a refused paid call and names the setting behind
@@ -595,7 +711,7 @@ func budgetRefusalText(err error) string {
 
 	return fmt.Sprintf(
 		"💸 %s harcama tavanına ulaşıldı ($%.5f / $%.5f), ücretli OpenRouter çağrısı yapılmadı.\n"+
-			"Tavanı .env dosyasındaki %s ile değiştirebilirsiniz. Sayaç süreç içinde tutulur, bot yeniden başlatılırsa sıfırlanır.",
+			"Tavanı .env dosyasındaki %s ile değiştirebilirsiniz.",
 		window, limitErr.Spent, limitErr.Limit, envVar)
 }
 
@@ -642,21 +758,26 @@ func (b *BotRunner) sendSuccessResponse(chatID int64, statusMsgID int, cleanText
 	}
 
 	for _, c := range chunks[1:] {
-		chunkText, parseMode := renderChunk(c, format)
-		msg := tgbotapi.NewMessage(chatID, chunkText)
-		msg.ParseMode = parseMode
-		_, err := b.api.Send(msg)
-		if err != nil && parseMode != "" {
-			msg.ParseMode = ""
-			msg.Text = c
-			b.sendMsg(msg)
-		}
+		b.sendChunk(chatID, c, format)
 	}
 
 	costMsgText := fmt.Sprintf("📊 <b>Kullanım Özeti:</b>\n└ Servis: %s", costDetail)
 	costMsg := tgbotapi.NewMessage(chatID, costMsgText)
 	costMsg.ParseMode = tgbotapi.ModeHTML
 	b.sendMsg(costMsg)
+}
+
+// sendChunk sends one rendered chunk as a new message, retrying without markup
+// if Telegram rejects the rendering. Losing the formatting beats losing the text.
+func (b *BotRunner) sendChunk(chatID int64, chunk string, format mode.Format) {
+	text, parseMode := renderChunk(chunk, format)
+	msg := tgbotapi.NewMessage(chatID, text)
+	msg.ParseMode = parseMode
+	if _, err := b.api.Send(msg); err != nil && parseMode != "" {
+		msg.ParseMode = ""
+		msg.Text = chunk
+		b.sendMsg(msg)
+	}
 }
 
 func (b *BotRunner) sendError(chatID int64, statusMsgID int, modeID string, errText string) {

@@ -1,9 +1,9 @@
 // Package budget caps what the bot is allowed to spend on paid provider calls.
 //
-// Counters live in memory only, so a restart clears them. That is deliberate for
-// now: persisting spend is Faz 8's job, and an in-process ceiling already stops
-// the case this exists for — a long-running session where every failed Google
-// call gets waved through to the paid provider.
+// Counters live in memory, but they are not the record: Seed reloads them at
+// startup from the costs the history layer already persists, so a restart no
+// longer hands the user a fresh allowance. This package stays free of any
+// storage dependency — the caller does the reloading.
 package budget
 
 import (
@@ -110,6 +110,25 @@ func (t *Tracker) Check() error {
 	return nil
 }
 
+// Seed replaces the counters with spend already recorded for the current
+// windows, which is how a restart picks up where it left off. It is meant to run
+// once before the tracker is shared, and it overwrites rather than adds so that
+// seeding twice cannot double-count the same history.
+func (t *Tracker) Seed(daily, monthly float64) {
+	if t == nil {
+		return
+	}
+
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	// rollover first: it stamps the window keys, and without them the next call
+	// would treat this seed as belonging to a stale window and zero it.
+	t.rollover()
+
+	t.daily = daily
+	t.monthly = monthly
+}
+
 // Record adds the cost of a completed paid call to both windows.
 func (t *Tracker) Record(cost float64) {
 	if t == nil || cost <= 0 {
@@ -141,17 +160,24 @@ func (t *Tracker) Snapshot() Status {
 	}
 }
 
+// DayKey and MonthKey name the window an instant belongs to. They are exported
+// because whoever persists costs has to bucket them the same way the tracker
+// does; two independent date formats would drift apart at a month boundary and
+// resurrect spend that should have expired.
+func DayKey(t time.Time) string   { return t.Format("2006-01-02") }
+func MonthKey(t time.Time) string { return t.Format("2006-01") }
+
 // rollover zeroes counters whose window has elapsed. Windows are keyed by
 // formatted local date rather than by an expiry timestamp so that "daily" means
 // the calendar day the user lives in, not a rolling 24 hours. The caller holds
 // the lock.
 func (t *Tracker) rollover() {
 	now := t.now()
-	if day := now.Format("2006-01-02"); day != t.dayKey {
+	if day := DayKey(now); day != t.dayKey {
 		t.dayKey = day
 		t.daily = 0
 	}
-	if month := now.Format("2006-01"); month != t.monthKey {
+	if month := MonthKey(now); month != t.monthKey {
 		t.monthKey = month
 		t.monthly = 0
 	}

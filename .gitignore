@@ -27,6 +27,8 @@
 !budget/*.go
 !config/
 !config/*.go
+!history/
+!history/*.go
 !mode/
 !mode/*.go
 !mode/default_modes.json

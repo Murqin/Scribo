@@ -35,7 +35,8 @@
 - **🆓 Google Free Tier First Strategy:** Direct connection to official Google Gemini API ($0.00). If rate limits occur, interactively prompts the user for OpenRouter fallback.
 - **🎙️ Native Audio & Video Processing:** Streams raw media buffers directly to Gemini's multi-modal engine. Supports Voice Notes (`.ogg`), Audio (`.mp3`, `.m4a`, `.wav`, `.aac`, `.flac`), Video and round Video Messages (`.mp4`, `.mov`, `.webm`, `.avi`, `.mpeg`, `.wmv`, `.flv`, `.3gp`), and the same files sent as Documents — up to 20 MB. Video is processed by Google only; there is no OpenRouter fallback for it.
 - **📋 Per-Mode Output Formatting:** Every mode declares how its output is rendered — `code` (default) wraps the reply in Telegram `<code>` tags for instant 1-tap clipboard copying, `markdown` renders the model's markdown as real Telegram formatting for prose modes, `plain` sends it verbatim.
-- **💸 Spending Ceiling:** Optional daily and monthly USD caps (`DAILY_COST_LIMIT` / `MONTHLY_COST_LIMIT`) on paid OpenRouter calls. Once a cap is reached the paid fallback is no longer offered and the refusal names the setting behind it; remaining budget is shown in the usage summary.
+- **💸 Spending Ceiling:** Optional daily and monthly USD caps (`DAILY_COST_LIMIT` / `MONTHLY_COST_LIMIT`) on paid OpenRouter calls. Once a cap is reached the paid fallback is no longer offered and the refusal names the setting behind it; remaining budget is shown in the usage summary. The counter is restored from the history file at startup, so restarting the bot does not hand out a fresh allowance.
+- **🗂️ Persistent History & `/son`:** Every finished output is appended to a JSONL file (`HISTORY_FILE`, default `scribo_history.jsonl`). `/son` replays the most recent output of the chat — rendered in its original mode's format — even after a restart. One JSON object per line, no database and no extra dependency.
 - **🧩 100% JSON-Driven Modes (`modes.json`):** Prompt instructions and Telegram inline keyboard buttons are managed dynamically via JSON without recompiling code!
 - **⚡ Real-Time Chat Action Indicator:** Sends real-time "typing..." status while downloading audio and generating AI responses.
 - **🔒 Data Privacy Transparency:** Outlines clear privacy options between Google Free Tier ($0) and Paid/OpenRouter (strict privacy, zero model training).
@@ -102,9 +103,15 @@ OPENROUTER_MODEL=google/gemini-3.6-flash
 MAX_CONCURRENT_JOBS=5
 
 # Spending ceiling in USD for paid OpenRouter calls. Leave empty for no ceiling.
-# Google Free Tier is never affected. Counters are in-process and reset on restart.
+# Google Free Tier is never affected. Counters are restored from HISTORY_FILE at
+# startup, so they survive a restart within the same calendar day/month.
 DAILY_COST_LIMIT=0.50
 MONTHLY_COST_LIMIT=10
+
+# Where finished outputs are appended, one JSON object per line. Powers /son and
+# the spending counter. Omit the line for the default; set it to an empty value
+# to store nothing (the spending counter then resets on every restart).
+HISTORY_FILE=scribo_history.jsonl
 ```
 
 ---
@@ -120,6 +127,8 @@ Please review Google AI Studio's terms regarding data privacy between Free Tier 
 | **Google Paid Tier** | **Paid** | 🛡️ **No** (Enterprise privacy, no model training) | High / Uncapped |
 
 > 💡 **Recommendation:** If you process sensitive or confidential audio, set `DEFAULT_PROVIDER=openrouter` or upgrade to Google's Paid Tier to guarantee enterprise-grade data privacy.
+
+> ⚠️ **Local storage:** Transcripts are also written in plain text to `HISTORY_FILE` on the machine running the bot (created with `0600` permissions). Set `HISTORY_FILE=` to an empty value to keep nothing on disk — note that this also makes the spending counter reset on every restart.
 
 ---
 
