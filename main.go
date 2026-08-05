@@ -36,6 +36,8 @@ func main() {
 		"GoogleModel", cfg.GoogleModel,
 		"OpenRouterModel", cfg.OpenRouterModel,
 		"DefaultProvider", cfg.DefaultProvider,
+		"DailyCostLimit", cfg.DailyCostLimit,
+		"MonthlyCostLimit", cfg.MonthlyCostLimit,
 	)
 
 	if err := runner.StartPolling(ctx); err != nil {

@@ -3,6 +3,7 @@ package bot
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"html"
 	"io"
@@ -15,6 +16,7 @@ import (
 	"unicode/utf16"
 	"unicode/utf8"
 
+	"scribo/budget"
 	"scribo/config"
 	"scribo/mode"
 	"scribo/provider"
@@ -35,6 +37,7 @@ type BotRunner struct {
 	api                TelegramClient
 	googleProvider     provider.AIProvider
 	openRouterProvider provider.AIProvider
+	budget             *budget.Tracker
 	httpClient         *http.Client
 	locksMu            sync.Mutex
 	activeLocks        map[string]bool
@@ -102,6 +105,7 @@ func NewBotRunner(cfg *config.Config) (*BotRunner, error) {
 		api:                bot,
 		googleProvider:     provider.NewGoogleProvider(cfg.GeminiAPIKey, cfg.GoogleModel),
 		openRouterProvider: provider.NewOpenRouterProvider(cfg.OpenRouterAPIKey, cfg.OpenRouterModel),
+		budget:             budget.New(cfg.DailyCostLimit, cfg.MonthlyCostLimit),
 		httpClient:         &http.Client{Timeout: 60 * time.Second},
 		activeLocks:        make(map[string]bool),
 		workerSem:          make(chan struct{}, cfg.MaxConcurrentJobs),
@@ -500,6 +504,16 @@ func (b *BotRunner) processVoice(ctx context.Context, chatID int64, fileID strin
 			return
 		}
 
+		// Offering the paid button when the ceiling is already reached would
+		// only lead to a refusal one tap later.
+		if limitErr := b.budget.Check(); limitErr != nil {
+			slog.Warn("Google API başarısız, harcama tavanı dolu olduğu için OpenRouter devri sunulmadı",
+				"error", safeErr, "limit", limitErr)
+			b.sendError(chatID, statusMsgID, modeID,
+				fmt.Sprintf("Google ile işlenemedi: %s\n\n%s", safeErr, budgetRefusalText(limitErr)))
+			return
+		}
+
 		slog.Warn("Google API başarısız, OpenRouter onayı soruluyor", "error", safeErr)
 		errShort := html.EscapeString(safeErr)
 		if len(errShort) > 200 {
@@ -534,6 +548,14 @@ func (b *BotRunner) processVoice(ctx context.Context, chatID int64, fileID strin
 		return
 	}
 
+	// The last gate before money is spent. Every paid path reaches this point,
+	// including the "paid:" callback the user tapped on the fallback prompt.
+	if limitErr := b.budget.Check(); limitErr != nil {
+		slog.Warn("Harcama tavanı nedeniyle ücretli çağrı reddedildi", "limit", limitErr)
+		b.sendError(chatID, statusMsgID, modeID, budgetRefusalText(limitErr))
+		return
+	}
+
 	orMsg := tgbotapi.NewEditMessageText(chatID, statusMsgID, fmt.Sprintf("🔄 <b>%s</b> hazırlanıyor... (OpenRouter)", modeInfo.Label))
 	orMsg.ParseMode = tgbotapi.ModeHTML
 	b.sendMsg(orMsg)
@@ -544,10 +566,59 @@ func (b *BotRunner) processVoice(ctx context.Context, chatID int64, fileID strin
 		return
 	}
 
-	costInfo := fmt.Sprintf("<b>OpenRouter</b>\n├ Token: %d (P: %d, C: %d)\n└ Maliyet: <code>$%s</code>",
-		res.PromptTokens+res.CompletionTokens, res.PromptTokens, res.CompletionTokens, fmt.Sprintf("%.5f", res.TotalCost))
+	b.budget.Record(res.TotalCost)
+
+	costLine, budgetLine := "└", ""
+	if line := budgetSummaryLine(b.budget.Snapshot()); line != "" {
+		costLine, budgetLine = "├", "\n"+line
+	}
+	costInfo := fmt.Sprintf("<b>OpenRouter</b>\n├ Token: %d (P: %d, C: %d)\n%s Maliyet: <code>$%s</code>%s",
+		res.PromptTokens+res.CompletionTokens, res.PromptTokens, res.CompletionTokens,
+		costLine, fmt.Sprintf("%.5f", res.TotalCost), budgetLine)
 
 	b.sendSuccessResponse(chatID, statusMsgID, res.Text, costInfo, modeInfo.Format)
+}
+
+// budgetRefusalText explains a refused paid call and names the setting behind
+// it, so a ceiling never reads like an outage. It returns plain text: sendError
+// escapes and wraps the message itself.
+func budgetRefusalText(err error) string {
+	var limitErr *budget.LimitError
+	if !errors.As(err, &limitErr) {
+		return "💸 Harcama tavanı denetimi nedeniyle ücretli çağrı yapılmadı."
+	}
+
+	window, envVar := "Günlük", "DAILY_COST_LIMIT"
+	if limitErr.Window == budget.WindowMonthly {
+		window, envVar = "Aylık", "MONTHLY_COST_LIMIT"
+	}
+
+	return fmt.Sprintf(
+		"💸 %s harcama tavanına ulaşıldı ($%.5f / $%.5f), ücretli OpenRouter çağrısı yapılmadı.\n"+
+			"Tavanı .env dosyasındaki %s ile değiştirebilirsiniz. Sayaç süreç içinde tutulur, bot yeniden başlatılırsa sıfırlanır.",
+		window, limitErr.Spent, limitErr.Limit, envVar)
+}
+
+// budgetSummaryLine reports remaining budget in the usage summary. It is empty
+// when no ceiling is configured, so the default setup gains no extra noise.
+func budgetSummaryLine(s budget.Status) string {
+	if !s.Enabled() {
+		return ""
+	}
+
+	var parts []string
+	if s.DailyLimit > 0 {
+		parts = append(parts, fmt.Sprintf("günlük $%.5f/$%.5f", s.DailySpent, s.DailyLimit))
+	}
+	if s.MonthlyLimit > 0 {
+		parts = append(parts, fmt.Sprintf("aylık $%.5f/$%.5f", s.MonthlySpent, s.MonthlyLimit))
+	}
+
+	prefix := "└ Bütçe"
+	if s.NearLimit() {
+		prefix = "└ ⚠️ Bütçe"
+	}
+	return prefix + ": " + strings.Join(parts, " · ")
 }
 
 func (b *BotRunner) sendSuccessResponse(chatID int64, statusMsgID int, cleanText string, costDetail string, format mode.Format) {

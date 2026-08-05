@@ -2,12 +2,18 @@ package bot
 
 import (
 	"context"
+	"errors"
+	"net/http"
+	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"unicode/utf8"
 
+	"scribo/budget"
 	"scribo/config"
 	"scribo/mode"
+	"scribo/provider"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
@@ -323,14 +329,25 @@ func TestIsAuthorized(t *testing.T) {
 }
 
 type mockTelegramClient struct {
+	// mu guards sentMessages: processVoice runs a typing-indicator goroutine
+	// that keeps sending while the test reads what was sent.
+	mu           sync.Mutex
 	sentMessages []tgbotapi.Chattable
 	fileURL      string
 	fileURLErr   error
 }
 
 func (m *mockTelegramClient) Send(c tgbotapi.Chattable) (tgbotapi.Message, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.sentMessages = append(m.sentMessages, c)
 	return tgbotapi.Message{}, nil
+}
+
+func (m *mockTelegramClient) sent() []tgbotapi.Chattable {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]tgbotapi.Chattable(nil), m.sentMessages...)
 }
 
 func (m *mockTelegramClient) GetFileDirectURL(fileID string) (string, error) {
@@ -492,5 +509,230 @@ func TestSplitMessage_MultiByteSafety(t *testing.T) {
 		if strip(rejoined.String()) != strip(tt.text) {
 			t.Errorf("%s: content lost while splitting", tt.name)
 		}
+	}
+}
+
+type mockAIProvider struct {
+	mu     sync.Mutex
+	name   string
+	calls  int
+	result *provider.AIResult
+	err    error
+}
+
+func (m *mockAIProvider) Name() string { return m.name }
+
+func (m *mockAIProvider) Generate(ctx context.Context, systemPrompt, audioBase64, mimeType string) (*provider.AIResult, error) {
+	m.mu.Lock()
+	m.calls++
+	m.mu.Unlock()
+
+	if m.err != nil {
+		return nil, m.err
+	}
+	return m.result, nil
+}
+
+func (m *mockAIProvider) callCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.calls
+}
+
+// sentTexts collects the message bodies the bot produced, whatever envelope
+// they arrived in.
+func sentTexts(m *mockTelegramClient) []string {
+	var texts []string
+	for _, c := range m.sent() {
+		switch msg := c.(type) {
+		case tgbotapi.EditMessageTextConfig:
+			texts = append(texts, msg.Text)
+		case tgbotapi.MessageConfig:
+			texts = append(texts, msg.Text)
+		}
+	}
+	return texts
+}
+
+func containsText(texts []string, needle string) bool {
+	for _, t := range texts {
+		if strings.Contains(t, needle) {
+			return true
+		}
+	}
+	return false
+}
+
+// offersPaidButton reports whether any sent message carries the paid-fallback
+// confirmation keyboard.
+func offersPaidButton(m *mockTelegramClient) bool {
+	for _, c := range m.sent() {
+		edit, ok := c.(tgbotapi.EditMessageTextConfig)
+		if !ok || edit.ReplyMarkup == nil {
+			continue
+		}
+		for _, row := range edit.ReplyMarkup.InlineKeyboard {
+			for _, btn := range row {
+				if btn.CallbackData != nil && strings.HasPrefix(*btn.CallbackData, "paid:") {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// budgetTestRunner wires a runner whose audio download succeeds, so tests can
+// reach the provider-selection logic.
+func budgetTestRunner(t *testing.T, cfg *config.Config, tracker *budget.Tracker) (*BotRunner, *mockTelegramClient, *mockAIProvider, *mockAIProvider) {
+	t.Helper()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("fake-audio-bytes"))
+	}))
+	t.Cleanup(srv.Close)
+
+	tg := &mockTelegramClient{fileURL: srv.URL + "/voice.ogg"}
+	google := &mockAIProvider{name: "google"}
+	openRouter := &mockAIProvider{name: "openrouter"}
+
+	runner := &BotRunner{
+		cfg:                cfg,
+		api:                tg,
+		googleProvider:     google,
+		openRouterProvider: openRouter,
+		budget:             tracker,
+		httpClient:         srv.Client(),
+	}
+	return runner, tg, google, openRouter
+}
+
+func TestProcessVoice_BudgetCeilingRefusesPaidCall(t *testing.T) {
+	tracker := budget.New(0.10, 0)
+	tracker.Record(0.10)
+
+	runner, tg, _, openRouter := budgetTestRunner(t,
+		&config.Config{OpenRouterModel: "test/model", DailyCostLimit: 0.10}, tracker)
+	runner.openRouterProvider.(*mockAIProvider).result = &provider.AIResult{Text: "must not be produced"}
+
+	runner.processVoice(context.Background(), 1, "file_1", "tldr", 2, "openrouter", "audio/ogg")
+
+	if openRouter.callCount() != 0 {
+		t.Fatalf("paid provider was called despite a full budget (%d calls)", openRouter.callCount())
+	}
+
+	texts := sentTexts(tg)
+	if !containsText(texts, "harcama tavanına ulaşıldı") {
+		t.Errorf("refusal reason missing from the reply: %v", texts)
+	}
+	if !containsText(texts, "DAILY_COST_LIMIT") {
+		t.Errorf("refusal does not name the setting that caused it: %v", texts)
+	}
+}
+
+func TestProcessVoice_BudgetUnderCeilingAllowsPaidCallAndRecordsCost(t *testing.T) {
+	tracker := budget.New(0.10, 1.0)
+
+	runner, tg, _, openRouter := budgetTestRunner(t,
+		&config.Config{OpenRouterModel: "test/model", DailyCostLimit: 0.10, MonthlyCostLimit: 1.0}, tracker)
+	openRouter.result = &provider.AIResult{Text: "sonuç", PromptTokens: 10, CompletionTokens: 5, TotalCost: 0.02}
+
+	runner.processVoice(context.Background(), 1, "file_1", "tldr", 2, "openrouter", "audio/ogg")
+
+	if openRouter.callCount() != 1 {
+		t.Fatalf("expected exactly 1 paid call under the ceiling, got %d", openRouter.callCount())
+	}
+	if s := tracker.Snapshot(); s.DailySpent != 0.02 || s.MonthlySpent != 0.02 {
+		t.Errorf("cost of the call was not recorded: %+v", s)
+	}
+	if texts := sentTexts(tg); !containsText(texts, "Bütçe") {
+		t.Errorf("usage summary does not report remaining budget: %v", texts)
+	}
+}
+
+func TestProcessVoice_BudgetCeilingHidesPaidFallbackButton(t *testing.T) {
+	tracker := budget.New(0, 1.0)
+	tracker.Record(1.0)
+
+	runner, tg, google, openRouter := budgetTestRunner(t,
+		&config.Config{GeminiAPIKey: "test-key", OpenRouterModel: "test/model", MonthlyCostLimit: 1.0}, tracker)
+	google.err = errors.New("HTTP 429: quota exceeded")
+
+	runner.processVoice(context.Background(), 1, "file_1", "tldr", 2, "", "audio/ogg")
+
+	if offersPaidButton(tg) {
+		t.Error("paid fallback was offered even though the budget is exhausted")
+	}
+	if openRouter.callCount() != 0 {
+		t.Errorf("paid provider was called (%d times)", openRouter.callCount())
+	}
+
+	texts := sentTexts(tg)
+	if !containsText(texts, "harcama tavanına ulaşıldı") {
+		t.Errorf("refusal reason missing from the reply: %v", texts)
+	}
+	if !containsText(texts, "MONTHLY_COST_LIMIT") {
+		t.Errorf("monthly ceiling must name MONTHLY_COST_LIMIT: %v", texts)
+	}
+}
+
+func TestProcessVoice_PaidFallbackStillOfferedWithBudgetLeft(t *testing.T) {
+	runner, tg, google, _ := budgetTestRunner(t,
+		&config.Config{GeminiAPIKey: "test-key", OpenRouterModel: "test/model", DailyCostLimit: 1.0},
+		budget.New(1.0, 0))
+	google.err = errors.New("HTTP 429: quota exceeded")
+
+	runner.processVoice(context.Background(), 1, "file_1", "tldr", 2, "", "audio/ogg")
+
+	if !offersPaidButton(tg) {
+		t.Errorf("paid fallback should still be offered while budget remains: %v", sentTexts(tg))
+	}
+}
+
+func TestProcessVoice_NoBudgetConfiguredKeepsSummaryUnchanged(t *testing.T) {
+	runner, tg, _, openRouter := budgetTestRunner(t,
+		&config.Config{OpenRouterModel: "test/model"}, budget.New(0, 0))
+	openRouter.result = &provider.AIResult{Text: "sonuç", TotalCost: 0.02}
+
+	runner.processVoice(context.Background(), 1, "file_1", "tldr", 2, "openrouter", "audio/ogg")
+
+	if openRouter.callCount() != 1 {
+		t.Fatalf("expected the call to go through without a ceiling, got %d calls", openRouter.callCount())
+	}
+	if texts := sentTexts(tg); containsText(texts, "Bütçe") {
+		t.Errorf("budget line must stay out of the summary when no ceiling is set: %v", texts)
+	}
+}
+
+func TestBudgetRefusalText(t *testing.T) {
+	daily := budgetRefusalText(&budget.LimitError{Window: budget.WindowDaily, Spent: 0.5, Limit: 0.5})
+	if !strings.Contains(daily, "Günlük") || !strings.Contains(daily, "DAILY_COST_LIMIT") {
+		t.Errorf("daily refusal text is wrong: %q", daily)
+	}
+
+	monthly := budgetRefusalText(&budget.LimitError{Window: budget.WindowMonthly, Spent: 12, Limit: 10})
+	if !strings.Contains(monthly, "Aylık") || !strings.Contains(monthly, "MONTHLY_COST_LIMIT") {
+		t.Errorf("monthly refusal text is wrong: %q", monthly)
+	}
+
+	// An unexpected error must still produce a usable sentence.
+	if generic := budgetRefusalText(errors.New("boom")); generic == "" {
+		t.Error("expected a fallback message for a non-LimitError")
+	}
+}
+
+func TestBudgetSummaryLine(t *testing.T) {
+	if line := budgetSummaryLine(budget.Status{}); line != "" {
+		t.Errorf("expected no summary line without a ceiling, got %q", line)
+	}
+
+	calm := budgetSummaryLine(budget.Status{DailySpent: 0.1, DailyLimit: 1})
+	if !strings.Contains(calm, "günlük") || strings.Contains(calm, "⚠️") {
+		t.Errorf("unexpected calm summary line: %q", calm)
+	}
+
+	loud := budgetSummaryLine(budget.Status{DailySpent: 0.9, DailyLimit: 1, MonthlySpent: 0.9, MonthlyLimit: 10})
+	if !strings.Contains(loud, "⚠️") || !strings.Contains(loud, "aylık") {
+		t.Errorf("expected a warning covering both windows: %q", loud)
 	}
 }

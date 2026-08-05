@@ -23,6 +23,8 @@
 !main.go
 !bot/
 !bot/*.go
+!budget/
+!budget/*.go
 !config/
 !config/*.go
 !mode/
