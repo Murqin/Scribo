@@ -20,6 +20,12 @@ type Config struct {
 	OpenRouterModel   string
 	DefaultProvider   string
 	MaxConcurrentJobs int
+	DailyCostLimit    float64
+	MonthlyCostLimit  float64
+
+	// costLimitErr defers a malformed spending limit to Validate so startup
+	// fails loudly instead of running without the ceiling that was asked for.
+	costLimitErr error
 }
 
 func LoadConfig() *Config {
@@ -42,6 +48,13 @@ func LoadConfig() *Config {
 		}
 	}
 
+	dailyLimit, dailyErr := parseCostLimit("DAILY_COST_LIMIT")
+	monthlyLimit, monthlyErr := parseCostLimit("MONTHLY_COST_LIMIT")
+	costLimitErr := dailyErr
+	if costLimitErr == nil {
+		costLimitErr = monthlyErr
+	}
+
 	return &Config{
 		TelegramToken:     getEnv("TELEGRAM_TOKEN", ""),
 		OpenRouterAPIKey:  getEnv("OPENROUTER_API_KEY", ""),
@@ -54,7 +67,26 @@ func LoadConfig() *Config {
 		OpenRouterModel:   openRouterModel,
 		DefaultProvider:   defaultProvider,
 		MaxConcurrentJobs: maxJobs,
+		DailyCostLimit:    dailyLimit,
+		MonthlyCostLimit:  monthlyLimit,
+		costLimitErr:      costLimitErr,
 	}
+}
+
+// parseCostLimit reads a spending ceiling in USD. An unset or empty value means
+// no ceiling; a malformed one is an error rather than a silent fallback,
+// because quietly disabling a spending cap is exactly the failure this setting
+// exists to prevent.
+func parseCostLimit(key string) (float64, error) {
+	raw := getEnv(key, "")
+	if raw == "" {
+		return 0, nil
+	}
+	val, err := strconv.ParseFloat(raw, 64)
+	if err != nil || val < 0 {
+		return 0, fmt.Errorf("%s pozitif bir ondalık sayı olmalı (okunan: %q)", key, raw)
+	}
+	return val, nil
 }
 
 func (c *Config) Validate() error {
@@ -64,7 +96,7 @@ func (c *Config) Validate() error {
 	if c.GeminiAPIKey == "" && c.OpenRouterAPIKey == "" {
 		return fmt.Errorf("En az bir AI API anahtarı (GEMINI_API_KEY veya OPENROUTER_API_KEY) tanımlanmalıdır")
 	}
-	return nil
+	return c.costLimitErr
 }
 
 func getEnv(key, fallback string) string {

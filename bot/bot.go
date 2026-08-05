@@ -3,6 +3,7 @@ package bot
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"html"
 	"io"
@@ -15,6 +16,7 @@ import (
 	"unicode/utf16"
 	"unicode/utf8"
 
+	"scribo/budget"
 	"scribo/config"
 	"scribo/mode"
 	"scribo/provider"
@@ -35,6 +37,7 @@ type BotRunner struct {
 	api                TelegramClient
 	googleProvider     provider.AIProvider
 	openRouterProvider provider.AIProvider
+	budget             *budget.Tracker
 	httpClient         *http.Client
 	locksMu            sync.Mutex
 	activeLocks        map[string]bool
@@ -102,6 +105,7 @@ func NewBotRunner(cfg *config.Config) (*BotRunner, error) {
 		api:                bot,
 		googleProvider:     provider.NewGoogleProvider(cfg.GeminiAPIKey, cfg.GoogleModel),
 		openRouterProvider: provider.NewOpenRouterProvider(cfg.OpenRouterAPIKey, cfg.OpenRouterModel),
+		budget:             budget.New(cfg.DailyCostLimit, cfg.MonthlyCostLimit),
 		httpClient:         &http.Client{Timeout: 60 * time.Second},
 		activeLocks:        make(map[string]bool),
 		workerSem:          make(chan struct{}, cfg.MaxConcurrentJobs),
@@ -175,6 +179,48 @@ func mimeTypeFromExt(ext string) string {
 	}
 }
 
+// videoMimeTypeFromExt maps a file extension to one of the video MIME types
+// Gemini accepts. Anything unrecognised falls back to video/mp4, which is what
+// Telegram produces for every video it transcodes itself.
+func videoMimeTypeFromExt(ext string) string {
+	switch ext {
+	case ".mpeg", ".mpg":
+		return "video/mpeg"
+	case ".mov":
+		return "video/mov"
+	case ".avi":
+		return "video/avi"
+	case ".flv":
+		return "video/x-flv"
+	case ".webm":
+		return "video/webm"
+	case ".wmv":
+		return "video/wmv"
+	case ".3gp", ".3gpp":
+		return "video/3gpp"
+	default:
+		return "video/mp4"
+	}
+}
+
+// videoMimeType prefers the MIME type declared by the sender, but only when it
+// is one Gemini understands — senders are free to declare anything, and an
+// unsupported value would be rejected by the API instead of falling back.
+func videoMimeType(declared, fileName string) string {
+	if declared != "" {
+		switch strings.ToLower(declared) {
+		case "video/mp4", "video/mpeg", "video/mov", "video/avi",
+			"video/x-flv", "video/webm", "video/wmv", "video/3gpp":
+			return strings.ToLower(declared)
+		}
+	}
+	return videoMimeTypeFromExt(strings.ToLower(filepath.Ext(fileName)))
+}
+
+func isVideoMimeType(mimeType string) bool {
+	return strings.HasPrefix(mimeType, "video/")
+}
+
 func extractAudioTarget(msg *tgbotapi.Message) *AudioTarget {
 	if msg == nil {
 		return nil
@@ -198,6 +244,30 @@ func extractAudioTarget(msg *tgbotapi.Message) *AudioTarget {
 			MimeType: mimeTypeFromExt(ext),
 		}
 	}
+	if msg.Video != nil {
+		name := msg.Video.FileName
+		if name == "" {
+			name = "Video"
+		}
+		return &AudioTarget{
+			FileID:   msg.Video.FileID,
+			FileSize: msg.Video.FileSize,
+			Duration: msg.Video.Duration,
+			Name:     name,
+			MimeType: videoMimeType(msg.Video.MimeType, msg.Video.FileName),
+		}
+	}
+	if msg.VideoNote != nil {
+		// Round video messages carry neither a file name nor a MIME type;
+		// Telegram always encodes them as MP4.
+		return &AudioTarget{
+			FileID:   msg.VideoNote.FileID,
+			FileSize: msg.VideoNote.FileSize,
+			Duration: msg.VideoNote.Duration,
+			Name:     "Video Mesajı",
+			MimeType: "video/mp4",
+		}
+	}
 	if msg.Document != nil {
 		ext := strings.ToLower(filepath.Ext(msg.Document.FileName))
 		switch ext {
@@ -208,6 +278,14 @@ func extractAudioTarget(msg *tgbotapi.Message) *AudioTarget {
 				Duration: 0,
 				Name:     msg.Document.FileName,
 				MimeType: mimeTypeFromExt(ext),
+			}
+		case ".mp4", ".mpeg", ".mpg", ".mov", ".avi", ".flv", ".webm", ".wmv", ".3gp", ".3gpp":
+			return &AudioTarget{
+				FileID:   msg.Document.FileID,
+				FileSize: msg.Document.FileSize,
+				Duration: 0,
+				Name:     msg.Document.FileName,
+				MimeType: videoMimeType(msg.Document.MimeType, msg.Document.FileName),
 			}
 		}
 	}
@@ -220,7 +298,7 @@ func (b *BotRunner) handleMessage(ctx context.Context, msg *tgbotapi.Message) {
 	}
 
 	if msg.IsCommand() && msg.Command() == "start" {
-		reply := tgbotapi.NewMessage(msg.Chat.ID, "🎙️ <b>Scribo Bot Hazır!</b>\nBir ses kaydı, MP3 veya ses dosyası gönderin.")
+		reply := tgbotapi.NewMessage(msg.Chat.ID, "🎙️ <b>Scribo Bot Hazır!</b>\nBir ses kaydı, video, video mesajı veya ses dosyası gönderin.")
 		reply.ParseMode = tgbotapi.ModeHTML
 		b.sendMsg(reply)
 		return
@@ -254,7 +332,7 @@ func (b *BotRunner) handleMessage(ctx context.Context, msg *tgbotapi.Message) {
 
 	// Guidance message for unsupported inputs
 	if !msg.IsCommand() {
-		reply := tgbotapi.NewMessage(msg.Chat.ID, "🎙️ Lütfen analiz edilmek üzere bir ses kaydı (Voice note) veya ses dosyası (MP3, M4A, WAV, FLAC, OGG) gönderin.")
+		reply := tgbotapi.NewMessage(msg.Chat.ID, "🎙️ Lütfen analiz edilmek üzere bir ses kaydı (Voice note), ses dosyası (MP3, M4A, WAV, FLAC, OGG), video veya video mesajı (MP4, MOV, WEBM, AVI) gönderin.")
 		reply.ReplyToMessageID = msg.MessageID
 		b.sendMsg(reply)
 	}
@@ -416,6 +494,26 @@ func (b *BotRunner) processVoice(ctx context.Context, chatID int64, fileID strin
 		}
 
 		safeErr := b.cfg.Redact(gErr.Error())
+
+		// OpenRouter carries media in an input_audio content part, so there is
+		// no paid fallback worth offering for video: the call could only fail.
+		if isVideoMimeType(mimeType) {
+			slog.Warn("Google API başarısız, video için OpenRouter devri atlandı", "error", safeErr)
+			b.sendError(chatID, statusMsgID, modeID,
+				fmt.Sprintf("Google ile işlenemedi: %s\n\nVideo yalnızca Google üzerinden işlenebiliyor.", gErr))
+			return
+		}
+
+		// Offering the paid button when the ceiling is already reached would
+		// only lead to a refusal one tap later.
+		if limitErr := b.budget.Check(); limitErr != nil {
+			slog.Warn("Google API başarısız, harcama tavanı dolu olduğu için OpenRouter devri sunulmadı",
+				"error", safeErr, "limit", limitErr)
+			b.sendError(chatID, statusMsgID, modeID,
+				fmt.Sprintf("Google ile işlenemedi: %s\n\n%s", safeErr, budgetRefusalText(limitErr)))
+			return
+		}
+
 		slog.Warn("Google API başarısız, OpenRouter onayı soruluyor", "error", safeErr)
 		errShort := html.EscapeString(safeErr)
 		if len(errShort) > 200 {
@@ -444,6 +542,20 @@ func (b *BotRunner) processVoice(ctx context.Context, chatID int64, fileID strin
 	}
 
 	// 2. OpenRouter Provider Try
+	if isVideoMimeType(mimeType) {
+		b.sendError(chatID, statusMsgID, modeID,
+			"Video yalnızca Google üzerinden işlenebiliyor; OpenRouter ses dışı içerik kabul etmiyor.")
+		return
+	}
+
+	// The last gate before money is spent. Every paid path reaches this point,
+	// including the "paid:" callback the user tapped on the fallback prompt.
+	if limitErr := b.budget.Check(); limitErr != nil {
+		slog.Warn("Harcama tavanı nedeniyle ücretli çağrı reddedildi", "limit", limitErr)
+		b.sendError(chatID, statusMsgID, modeID, budgetRefusalText(limitErr))
+		return
+	}
+
 	orMsg := tgbotapi.NewEditMessageText(chatID, statusMsgID, fmt.Sprintf("🔄 <b>%s</b> hazırlanıyor... (OpenRouter)", modeInfo.Label))
 	orMsg.ParseMode = tgbotapi.ModeHTML
 	b.sendMsg(orMsg)
@@ -454,10 +566,59 @@ func (b *BotRunner) processVoice(ctx context.Context, chatID int64, fileID strin
 		return
 	}
 
-	costInfo := fmt.Sprintf("<b>OpenRouter</b>\n├ Token: %d (P: %d, C: %d)\n└ Maliyet: <code>$%s</code>",
-		res.PromptTokens+res.CompletionTokens, res.PromptTokens, res.CompletionTokens, fmt.Sprintf("%.5f", res.TotalCost))
+	b.budget.Record(res.TotalCost)
+
+	costLine, budgetLine := "└", ""
+	if line := budgetSummaryLine(b.budget.Snapshot()); line != "" {
+		costLine, budgetLine = "├", "\n"+line
+	}
+	costInfo := fmt.Sprintf("<b>OpenRouter</b>\n├ Token: %d (P: %d, C: %d)\n%s Maliyet: <code>$%s</code>%s",
+		res.PromptTokens+res.CompletionTokens, res.PromptTokens, res.CompletionTokens,
+		costLine, fmt.Sprintf("%.5f", res.TotalCost), budgetLine)
 
 	b.sendSuccessResponse(chatID, statusMsgID, res.Text, costInfo, modeInfo.Format)
+}
+
+// budgetRefusalText explains a refused paid call and names the setting behind
+// it, so a ceiling never reads like an outage. It returns plain text: sendError
+// escapes and wraps the message itself.
+func budgetRefusalText(err error) string {
+	var limitErr *budget.LimitError
+	if !errors.As(err, &limitErr) {
+		return "💸 Harcama tavanı denetimi nedeniyle ücretli çağrı yapılmadı."
+	}
+
+	window, envVar := "Günlük", "DAILY_COST_LIMIT"
+	if limitErr.Window == budget.WindowMonthly {
+		window, envVar = "Aylık", "MONTHLY_COST_LIMIT"
+	}
+
+	return fmt.Sprintf(
+		"💸 %s harcama tavanına ulaşıldı ($%.5f / $%.5f), ücretli OpenRouter çağrısı yapılmadı.\n"+
+			"Tavanı .env dosyasındaki %s ile değiştirebilirsiniz. Sayaç süreç içinde tutulur, bot yeniden başlatılırsa sıfırlanır.",
+		window, limitErr.Spent, limitErr.Limit, envVar)
+}
+
+// budgetSummaryLine reports remaining budget in the usage summary. It is empty
+// when no ceiling is configured, so the default setup gains no extra noise.
+func budgetSummaryLine(s budget.Status) string {
+	if !s.Enabled() {
+		return ""
+	}
+
+	var parts []string
+	if s.DailyLimit > 0 {
+		parts = append(parts, fmt.Sprintf("günlük $%.5f/$%.5f", s.DailySpent, s.DailyLimit))
+	}
+	if s.MonthlyLimit > 0 {
+		parts = append(parts, fmt.Sprintf("aylık $%.5f/$%.5f", s.MonthlySpent, s.MonthlyLimit))
+	}
+
+	prefix := "└ Bütçe"
+	if s.NearLimit() {
+		prefix = "└ ⚠️ Bütçe"
+	}
+	return prefix + ": " + strings.Join(parts, " · ")
 }
 
 func (b *BotRunner) sendSuccessResponse(chatID int64, statusMsgID int, cleanText string, costDetail string, format mode.Format) {

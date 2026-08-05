@@ -4,7 +4,7 @@
   <img src="assets/mascot.jpg" alt="Scribo Mascot" width="180" style="border-radius: 50%;"/>
 </p>
 
-> **Scribo is a high-performance, ultra-lightweight Telegram bot written in Go (Golang). It captures voice notes, MP3s, and audio files, processing them natively using Google Gemini AI (Free Tier) with an interactive OpenRouter fallback. Runs 24/7 on VPS environments consuming under 10 MB RAM.**
+> **Scribo is a high-performance, ultra-lightweight Telegram bot written in Go (Golang). It captures voice notes, MP3s, audio files, and videos, processing them natively using Google Gemini AI (Free Tier) with an interactive OpenRouter fallback. Runs 24/7 on VPS environments consuming under 10 MB RAM.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](LICENSE)
 [![Tech: Go](https://img.shields.io/badge/Language-Go-00ADD8?style=flat-square&logo=go&logoColor=white)](#)
@@ -33,8 +33,9 @@
 ## ✨ Features
 
 - **🆓 Google Free Tier First Strategy:** Direct connection to official Google Gemini API ($0.00). If rate limits occur, interactively prompts the user for OpenRouter fallback.
-- **🎙️ Native Audio Processing:** Streams raw audio buffers directly to Gemini's multi-modal audio engine. Supports Voice Notes (`.ogg`), Audio (`.mp3`, `.m4a`, `.wav`, `.aac`, `.flac`), and Document audio files up to 20 MB.
+- **🎙️ Native Audio & Video Processing:** Streams raw media buffers directly to Gemini's multi-modal engine. Supports Voice Notes (`.ogg`), Audio (`.mp3`, `.m4a`, `.wav`, `.aac`, `.flac`), Video and round Video Messages (`.mp4`, `.mov`, `.webm`, `.avi`, `.mpeg`, `.wmv`, `.flv`, `.3gp`), and the same files sent as Documents — up to 20 MB. Video is processed by Google only; there is no OpenRouter fallback for it.
 - **📋 Per-Mode Output Formatting:** Every mode declares how its output is rendered — `code` (default) wraps the reply in Telegram `<code>` tags for instant 1-tap clipboard copying, `markdown` renders the model's markdown as real Telegram formatting for prose modes, `plain` sends it verbatim.
+- **💸 Spending Ceiling:** Optional daily and monthly USD caps (`DAILY_COST_LIMIT` / `MONTHLY_COST_LIMIT`) on paid OpenRouter calls. Once a cap is reached the paid fallback is no longer offered and the refusal names the setting behind it; remaining budget is shown in the usage summary.
 - **🧩 100% JSON-Driven Modes (`modes.json`):** Prompt instructions and Telegram inline keyboard buttons are managed dynamically via JSON without recompiling code!
 - **⚡ Real-Time Chat Action Indicator:** Sends real-time "typing..." status while downloading audio and generating AI responses.
 - **🔒 Data Privacy Transparency:** Outlines clear privacy options between Google Free Tier ($0) and Paid/OpenRouter (strict privacy, zero model training).
@@ -99,6 +100,11 @@ OPENROUTER_MODEL=google/gemini-3.6-flash
 # Worker Pool Concurrency Limit (Maximum simultaneous audio processing jobs)
 # Controls how many audio files are processed in parallel. Extra requests wait in queue safely.
 MAX_CONCURRENT_JOBS=5
+
+# Spending ceiling in USD for paid OpenRouter calls. Leave empty for no ceiling.
+# Google Free Tier is never affected. Counters are in-process and reset on restart.
+DAILY_COST_LIMIT=0.50
+MONTHLY_COST_LIMIT=10
 ```
 
 ---

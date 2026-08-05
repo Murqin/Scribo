@@ -217,3 +217,50 @@ func TestLoadDotEnv_InlineComments(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadConfig_CostLimits(t *testing.T) {
+	t.Setenv("TELEGRAM_TOKEN", "token")
+	t.Setenv("GEMINI_API_KEY", "key")
+
+	tests := []struct {
+		name      string
+		daily     string
+		monthly   string
+		wantDaily float64
+		wantMonth float64
+		wantErr   bool
+	}{
+		{name: "unset means no ceiling"},
+		{name: "both parsed", daily: "0.50", monthly: "12", wantDaily: 0.50, wantMonth: 12},
+		{name: "zero is accepted as unlimited", daily: "0"},
+		{name: "malformed daily is an error", daily: "1,50", wantErr: true},
+		{name: "negative monthly is an error", monthly: "-3", wantErr: true},
+		{name: "trailing unit is an error", daily: "5usd", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("DAILY_COST_LIMIT", tt.daily)
+			t.Setenv("MONTHLY_COST_LIMIT", tt.monthly)
+
+			cfg := LoadConfig()
+			err := cfg.Validate()
+
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected a malformed spending limit to fail validation")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected validation error: %v", err)
+			}
+			if cfg.DailyCostLimit != tt.wantDaily {
+				t.Errorf("DailyCostLimit = %v, want %v", cfg.DailyCostLimit, tt.wantDaily)
+			}
+			if cfg.MonthlyCostLimit != tt.wantMonth {
+				t.Errorf("MonthlyCostLimit = %v, want %v", cfg.MonthlyCostLimit, tt.wantMonth)
+			}
+		})
+	}
+}

@@ -2,12 +2,18 @@ package bot
 
 import (
 	"context"
+	"errors"
+	"net/http"
+	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"unicode/utf8"
 
+	"scribo/budget"
 	"scribo/config"
 	"scribo/mode"
+	"scribo/provider"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
@@ -131,6 +137,159 @@ func TestExtractAudioTarget_Document(t *testing.T) {
 	}
 }
 
+func TestVideoMimeType(t *testing.T) {
+	tests := []struct {
+		name     string
+		declared string
+		fileName string
+		expected string
+	}{
+		{"declared mp4 wins", "video/mp4", "clip.avi", "video/mp4"},
+		{"declared uppercase is normalised", "VIDEO/WEBM", "clip.mp4", "video/webm"},
+		{"unsupported declared type falls back to extension", "video/x-matroska", "clip.mov", "video/mov"},
+		{"empty declared type uses extension", "", "clip.webm", "video/webm"},
+		{"unknown extension defaults to mp4", "", "clip.mkv", "video/mp4"},
+		{"missing name defaults to mp4", "", "", "video/mp4"},
+		{"mpg maps to mpeg", "", "clip.mpg", "video/mpeg"},
+		{"3gp maps to 3gpp", "", "clip.3gp", "video/3gpp"},
+		{"flv keeps the x- prefix", "", "clip.flv", "video/x-flv"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := videoMimeType(tt.declared, tt.fileName); got != tt.expected {
+				t.Errorf("videoMimeType(%q, %q) = %s; want %s", tt.declared, tt.fileName, got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestExtractAudioTarget_Video(t *testing.T) {
+	msg := &tgbotapi.Message{
+		Video: &tgbotapi.Video{
+			FileID:   "vid_123",
+			FileName: "meeting.mp4",
+			MimeType: "video/mp4",
+			FileSize: 1_048_576,
+			Duration: 90,
+		},
+	}
+
+	target := extractAudioTarget(msg)
+	if target == nil {
+		t.Fatal("expected non-nil AudioTarget for video")
+	}
+	if target.FileID != "vid_123" || target.MimeType != "video/mp4" {
+		t.Errorf("unexpected target: %+v", target)
+	}
+	if target.Name != "meeting.mp4" || target.Duration != 90 || target.FileSize != 1_048_576 {
+		t.Errorf("unexpected target metadata: %+v", target)
+	}
+	if !isVideoMimeType(target.MimeType) {
+		t.Errorf("expected %s to be recognised as video", target.MimeType)
+	}
+}
+
+func TestExtractAudioTarget_VideoWithoutFileName(t *testing.T) {
+	// Telegram omits the file name for videos it transcoded itself.
+	msg := &tgbotapi.Message{
+		Video: &tgbotapi.Video{
+			FileID:   "vid_456",
+			FileSize: 2048,
+			Duration: 12,
+		},
+	}
+
+	target := extractAudioTarget(msg)
+	if target == nil {
+		t.Fatal("expected non-nil AudioTarget for video without file name")
+	}
+	if target.Name != "Video" || target.MimeType != "video/mp4" {
+		t.Errorf("unexpected target: %+v", target)
+	}
+}
+
+func TestExtractAudioTarget_VideoNote(t *testing.T) {
+	msg := &tgbotapi.Message{
+		VideoNote: &tgbotapi.VideoNote{
+			FileID:   "note_789",
+			FileSize: 4096,
+			Duration: 20,
+		},
+	}
+
+	target := extractAudioTarget(msg)
+	if target == nil {
+		t.Fatal("expected non-nil AudioTarget for video note")
+	}
+	if target.FileID != "note_789" || target.MimeType != "video/mp4" {
+		t.Errorf("unexpected target: %+v", target)
+	}
+	if target.Name != "Video Mesajı" || target.Duration != 20 {
+		t.Errorf("unexpected target metadata: %+v", target)
+	}
+}
+
+func TestExtractAudioTarget_VideoDocument(t *testing.T) {
+	// A video sent "as file" arrives as a Document.
+	msgVideoDoc := &tgbotapi.Message{
+		Document: &tgbotapi.Document{
+			FileID:   "doc_mov_111",
+			FileName: "screen.mov",
+			MimeType: "video/quicktime",
+			FileSize: 8192,
+		},
+	}
+
+	target := extractAudioTarget(msgVideoDoc)
+	if target == nil {
+		t.Fatal("expected non-nil AudioTarget for video document")
+	}
+	// video/quicktime is not in Gemini's list, so the extension decides.
+	if target.MimeType != "video/mov" {
+		t.Errorf("unexpected mime type: %s", target.MimeType)
+	}
+
+	msgMkvDoc := &tgbotapi.Message{
+		Document: &tgbotapi.Document{
+			FileID:   "doc_mkv_222",
+			FileName: "movie.mkv",
+			FileSize: 8192,
+		},
+	}
+
+	if extractAudioTarget(msgMkvDoc) != nil {
+		t.Error("expected nil AudioTarget for unsupported video container (.mkv)")
+	}
+}
+
+func TestExtractAudioTarget_VoiceWinsOverVideo(t *testing.T) {
+	// A single Telegram message never carries both, but the branch order is
+	// what keeps audio on the cheaper audio path if it ever did.
+	msg := &tgbotapi.Message{
+		Voice: &tgbotapi.Voice{FileID: "voice_1", Duration: 5},
+		Video: &tgbotapi.Video{FileID: "video_1", Duration: 5},
+	}
+
+	target := extractAudioTarget(msg)
+	if target == nil || target.FileID != "voice_1" || target.MimeType != "audio/ogg" {
+		t.Errorf("expected voice to take precedence, got %+v", target)
+	}
+}
+
+func TestIsVideoMimeType(t *testing.T) {
+	for _, mt := range []string{"video/mp4", "video/webm", "video/x-flv"} {
+		if !isVideoMimeType(mt) {
+			t.Errorf("expected %s to be video", mt)
+		}
+	}
+	for _, mt := range []string{"audio/ogg", "audio/mp3", ""} {
+		if isVideoMimeType(mt) {
+			t.Errorf("expected %s not to be video", mt)
+		}
+	}
+}
+
 func TestIsAuthorized(t *testing.T) {
 	// 1. Restricted User ID
 	runnerRestricted := &BotRunner{
@@ -170,14 +329,25 @@ func TestIsAuthorized(t *testing.T) {
 }
 
 type mockTelegramClient struct {
+	// mu guards sentMessages: processVoice runs a typing-indicator goroutine
+	// that keeps sending while the test reads what was sent.
+	mu           sync.Mutex
 	sentMessages []tgbotapi.Chattable
 	fileURL      string
 	fileURLErr   error
 }
 
 func (m *mockTelegramClient) Send(c tgbotapi.Chattable) (tgbotapi.Message, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.sentMessages = append(m.sentMessages, c)
 	return tgbotapi.Message{}, nil
+}
+
+func (m *mockTelegramClient) sent() []tgbotapi.Chattable {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]tgbotapi.Chattable(nil), m.sentMessages...)
 }
 
 func (m *mockTelegramClient) GetFileDirectURL(fileID string) (string, error) {
@@ -339,5 +509,230 @@ func TestSplitMessage_MultiByteSafety(t *testing.T) {
 		if strip(rejoined.String()) != strip(tt.text) {
 			t.Errorf("%s: content lost while splitting", tt.name)
 		}
+	}
+}
+
+type mockAIProvider struct {
+	mu     sync.Mutex
+	name   string
+	calls  int
+	result *provider.AIResult
+	err    error
+}
+
+func (m *mockAIProvider) Name() string { return m.name }
+
+func (m *mockAIProvider) Generate(ctx context.Context, systemPrompt, audioBase64, mimeType string) (*provider.AIResult, error) {
+	m.mu.Lock()
+	m.calls++
+	m.mu.Unlock()
+
+	if m.err != nil {
+		return nil, m.err
+	}
+	return m.result, nil
+}
+
+func (m *mockAIProvider) callCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.calls
+}
+
+// sentTexts collects the message bodies the bot produced, whatever envelope
+// they arrived in.
+func sentTexts(m *mockTelegramClient) []string {
+	var texts []string
+	for _, c := range m.sent() {
+		switch msg := c.(type) {
+		case tgbotapi.EditMessageTextConfig:
+			texts = append(texts, msg.Text)
+		case tgbotapi.MessageConfig:
+			texts = append(texts, msg.Text)
+		}
+	}
+	return texts
+}
+
+func containsText(texts []string, needle string) bool {
+	for _, t := range texts {
+		if strings.Contains(t, needle) {
+			return true
+		}
+	}
+	return false
+}
+
+// offersPaidButton reports whether any sent message carries the paid-fallback
+// confirmation keyboard.
+func offersPaidButton(m *mockTelegramClient) bool {
+	for _, c := range m.sent() {
+		edit, ok := c.(tgbotapi.EditMessageTextConfig)
+		if !ok || edit.ReplyMarkup == nil {
+			continue
+		}
+		for _, row := range edit.ReplyMarkup.InlineKeyboard {
+			for _, btn := range row {
+				if btn.CallbackData != nil && strings.HasPrefix(*btn.CallbackData, "paid:") {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// budgetTestRunner wires a runner whose audio download succeeds, so tests can
+// reach the provider-selection logic.
+func budgetTestRunner(t *testing.T, cfg *config.Config, tracker *budget.Tracker) (*BotRunner, *mockTelegramClient, *mockAIProvider, *mockAIProvider) {
+	t.Helper()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("fake-audio-bytes"))
+	}))
+	t.Cleanup(srv.Close)
+
+	tg := &mockTelegramClient{fileURL: srv.URL + "/voice.ogg"}
+	google := &mockAIProvider{name: "google"}
+	openRouter := &mockAIProvider{name: "openrouter"}
+
+	runner := &BotRunner{
+		cfg:                cfg,
+		api:                tg,
+		googleProvider:     google,
+		openRouterProvider: openRouter,
+		budget:             tracker,
+		httpClient:         srv.Client(),
+	}
+	return runner, tg, google, openRouter
+}
+
+func TestProcessVoice_BudgetCeilingRefusesPaidCall(t *testing.T) {
+	tracker := budget.New(0.10, 0)
+	tracker.Record(0.10)
+
+	runner, tg, _, openRouter := budgetTestRunner(t,
+		&config.Config{OpenRouterModel: "test/model", DailyCostLimit: 0.10}, tracker)
+	runner.openRouterProvider.(*mockAIProvider).result = &provider.AIResult{Text: "must not be produced"}
+
+	runner.processVoice(context.Background(), 1, "file_1", "tldr", 2, "openrouter", "audio/ogg")
+
+	if openRouter.callCount() != 0 {
+		t.Fatalf("paid provider was called despite a full budget (%d calls)", openRouter.callCount())
+	}
+
+	texts := sentTexts(tg)
+	if !containsText(texts, "harcama tavanına ulaşıldı") {
+		t.Errorf("refusal reason missing from the reply: %v", texts)
+	}
+	if !containsText(texts, "DAILY_COST_LIMIT") {
+		t.Errorf("refusal does not name the setting that caused it: %v", texts)
+	}
+}
+
+func TestProcessVoice_BudgetUnderCeilingAllowsPaidCallAndRecordsCost(t *testing.T) {
+	tracker := budget.New(0.10, 1.0)
+
+	runner, tg, _, openRouter := budgetTestRunner(t,
+		&config.Config{OpenRouterModel: "test/model", DailyCostLimit: 0.10, MonthlyCostLimit: 1.0}, tracker)
+	openRouter.result = &provider.AIResult{Text: "sonuç", PromptTokens: 10, CompletionTokens: 5, TotalCost: 0.02}
+
+	runner.processVoice(context.Background(), 1, "file_1", "tldr", 2, "openrouter", "audio/ogg")
+
+	if openRouter.callCount() != 1 {
+		t.Fatalf("expected exactly 1 paid call under the ceiling, got %d", openRouter.callCount())
+	}
+	if s := tracker.Snapshot(); s.DailySpent != 0.02 || s.MonthlySpent != 0.02 {
+		t.Errorf("cost of the call was not recorded: %+v", s)
+	}
+	if texts := sentTexts(tg); !containsText(texts, "Bütçe") {
+		t.Errorf("usage summary does not report remaining budget: %v", texts)
+	}
+}
+
+func TestProcessVoice_BudgetCeilingHidesPaidFallbackButton(t *testing.T) {
+	tracker := budget.New(0, 1.0)
+	tracker.Record(1.0)
+
+	runner, tg, google, openRouter := budgetTestRunner(t,
+		&config.Config{GeminiAPIKey: "test-key", OpenRouterModel: "test/model", MonthlyCostLimit: 1.0}, tracker)
+	google.err = errors.New("HTTP 429: quota exceeded")
+
+	runner.processVoice(context.Background(), 1, "file_1", "tldr", 2, "", "audio/ogg")
+
+	if offersPaidButton(tg) {
+		t.Error("paid fallback was offered even though the budget is exhausted")
+	}
+	if openRouter.callCount() != 0 {
+		t.Errorf("paid provider was called (%d times)", openRouter.callCount())
+	}
+
+	texts := sentTexts(tg)
+	if !containsText(texts, "harcama tavanına ulaşıldı") {
+		t.Errorf("refusal reason missing from the reply: %v", texts)
+	}
+	if !containsText(texts, "MONTHLY_COST_LIMIT") {
+		t.Errorf("monthly ceiling must name MONTHLY_COST_LIMIT: %v", texts)
+	}
+}
+
+func TestProcessVoice_PaidFallbackStillOfferedWithBudgetLeft(t *testing.T) {
+	runner, tg, google, _ := budgetTestRunner(t,
+		&config.Config{GeminiAPIKey: "test-key", OpenRouterModel: "test/model", DailyCostLimit: 1.0},
+		budget.New(1.0, 0))
+	google.err = errors.New("HTTP 429: quota exceeded")
+
+	runner.processVoice(context.Background(), 1, "file_1", "tldr", 2, "", "audio/ogg")
+
+	if !offersPaidButton(tg) {
+		t.Errorf("paid fallback should still be offered while budget remains: %v", sentTexts(tg))
+	}
+}
+
+func TestProcessVoice_NoBudgetConfiguredKeepsSummaryUnchanged(t *testing.T) {
+	runner, tg, _, openRouter := budgetTestRunner(t,
+		&config.Config{OpenRouterModel: "test/model"}, budget.New(0, 0))
+	openRouter.result = &provider.AIResult{Text: "sonuç", TotalCost: 0.02}
+
+	runner.processVoice(context.Background(), 1, "file_1", "tldr", 2, "openrouter", "audio/ogg")
+
+	if openRouter.callCount() != 1 {
+		t.Fatalf("expected the call to go through without a ceiling, got %d calls", openRouter.callCount())
+	}
+	if texts := sentTexts(tg); containsText(texts, "Bütçe") {
+		t.Errorf("budget line must stay out of the summary when no ceiling is set: %v", texts)
+	}
+}
+
+func TestBudgetRefusalText(t *testing.T) {
+	daily := budgetRefusalText(&budget.LimitError{Window: budget.WindowDaily, Spent: 0.5, Limit: 0.5})
+	if !strings.Contains(daily, "Günlük") || !strings.Contains(daily, "DAILY_COST_LIMIT") {
+		t.Errorf("daily refusal text is wrong: %q", daily)
+	}
+
+	monthly := budgetRefusalText(&budget.LimitError{Window: budget.WindowMonthly, Spent: 12, Limit: 10})
+	if !strings.Contains(monthly, "Aylık") || !strings.Contains(monthly, "MONTHLY_COST_LIMIT") {
+		t.Errorf("monthly refusal text is wrong: %q", monthly)
+	}
+
+	// An unexpected error must still produce a usable sentence.
+	if generic := budgetRefusalText(errors.New("boom")); generic == "" {
+		t.Error("expected a fallback message for a non-LimitError")
+	}
+}
+
+func TestBudgetSummaryLine(t *testing.T) {
+	if line := budgetSummaryLine(budget.Status{}); line != "" {
+		t.Errorf("expected no summary line without a ceiling, got %q", line)
+	}
+
+	calm := budgetSummaryLine(budget.Status{DailySpent: 0.1, DailyLimit: 1})
+	if !strings.Contains(calm, "günlük") || strings.Contains(calm, "⚠️") {
+		t.Errorf("unexpected calm summary line: %q", calm)
+	}
+
+	loud := budgetSummaryLine(budget.Status{DailySpent: 0.9, DailyLimit: 1, MonthlySpent: 0.9, MonthlyLimit: 10})
+	if !strings.Contains(loud, "⚠️") || !strings.Contains(loud, "aylık") {
+		t.Errorf("expected a warning covering both windows: %q", loud)
 	}
 }
