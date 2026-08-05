@@ -22,6 +22,7 @@ type Config struct {
 	MaxConcurrentJobs int
 	DailyCostLimit    float64
 	MonthlyCostLimit  float64
+	HistoryFile       string
 
 	// costLimitErr defers a malformed spending limit to Validate so startup
 	// fails loudly instead of running without the ceiling that was asked for.
@@ -69,8 +70,22 @@ func LoadConfig() *Config {
 		MaxConcurrentJobs: maxJobs,
 		DailyCostLimit:    dailyLimit,
 		MonthlyCostLimit:  monthlyLimit,
+		HistoryFile:       historyFile(),
 		costLimitErr:      costLimitErr,
 	}
+}
+
+// defaultHistoryFile is where transcripts land when HISTORY_FILE says nothing.
+const defaultHistoryFile = "scribo_history.jsonl"
+
+// historyFile reads where transcripts are persisted. Unlike the other settings
+// it cannot go through getEnv: an explicitly empty HISTORY_FILE means "keep no
+// history", and getEnv would read that as "unset" and hand back the default.
+func historyFile() string {
+	if val, ok := os.LookupEnv("HISTORY_FILE"); ok {
+		return strings.TrimSpace(val)
+	}
+	return defaultHistoryFile
 }
 
 // parseCostLimit reads a spending ceiling in USD. An unset or empty value means

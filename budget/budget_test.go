@@ -160,3 +160,79 @@ func TestConcurrentRecordAndCheck(t *testing.T) {
 		t.Errorf("expected ~0.50 recorded, got %v", s.DailySpent)
 	}
 }
+
+func TestSeed_RestoresSpendAcrossRestart(t *testing.T) {
+	tr := New(0.10, 5.0)
+	at(tr, time.Date(2026, 8, 6, 12, 0, 0, 0, time.Local))
+	tr.Seed(0.12, 0.30)
+
+	if tr.Check() == nil {
+		t.Error("a seeded daily spend above the limit must refuse the next paid call")
+	}
+	s := tr.Snapshot()
+	if s.DailySpent != 0.12 || s.MonthlySpent != 0.30 {
+		t.Errorf("Snapshot after Seed = %+v, want daily 0.12 / monthly 0.30", s)
+	}
+}
+
+func TestSeed_SurvivesTheFirstRollover(t *testing.T) {
+	// Seed runs before any other call, so it is the first thing to stamp the
+	// window keys. If it did not, the next Check would treat the seeded value as
+	// belonging to a stale window and silently hand back a full allowance.
+	tr := New(0.10, 0)
+	at(tr, time.Date(2026, 8, 6, 12, 0, 0, 0, time.Local))
+	tr.Seed(0.50, 0)
+
+	if err := tr.Check(); err == nil {
+		t.Fatal("seeded spend was cleared by the first rollover")
+	}
+	if s := tr.Snapshot(); s.DailySpent != 0.50 {
+		t.Errorf("daily spend = %v after Seed, want 0.50", s.DailySpent)
+	}
+}
+
+func TestSeed_OverwritesRatherThanAccumulates(t *testing.T) {
+	tr := New(1.0, 1.0)
+	at(tr, time.Date(2026, 8, 6, 12, 0, 0, 0, time.Local))
+	tr.Seed(0.20, 0.20)
+	tr.Seed(0.20, 0.20)
+
+	if s := tr.Snapshot(); s.DailySpent != 0.20 {
+		t.Errorf("seeding twice gave %v, want 0.20 — Seed must replace, not add", s.DailySpent)
+	}
+}
+
+func TestSeed_StillExpiresOnAWindowChange(t *testing.T) {
+	tr := New(0.10, 5.0)
+	at(tr, time.Date(2026, 8, 6, 23, 0, 0, 0, time.Local))
+	tr.Seed(0.50, 0.50)
+
+	at(tr, time.Date(2026, 8, 7, 1, 0, 0, 0, time.Local))
+	if err := tr.Check(); err != nil {
+		t.Errorf("seeded spend must still expire when the day rolls over, got %v", err)
+	}
+	if s := tr.Snapshot(); s.MonthlySpent != 0.50 {
+		t.Errorf("monthly seeded spend = %v, want it to survive a day change", s.MonthlySpent)
+	}
+}
+
+func TestSeed_NilTrackerDoesNotPanic(t *testing.T) {
+	var tr *Tracker
+	tr.Seed(1.0, 1.0)
+}
+
+func TestDayAndMonthKeys(t *testing.T) {
+	at := time.Date(2026, 8, 6, 23, 59, 0, 0, time.Local)
+	if got := DayKey(at); got != "2026-08-06" {
+		t.Errorf("DayKey = %q, want 2026-08-06", got)
+	}
+	if got := MonthKey(at); got != "2026-08" {
+		t.Errorf("MonthKey = %q, want 2026-08", got)
+	}
+	if DayKey(at) == DayKey(at.AddDate(0, 0, 1)) {
+		t.Error("DayKey must differ across a day boundary")
+	}
+	if MonthKey(at) == MonthKey(at.AddDate(0, 1, 0)) {
+		t.Error("MonthKey must differ across a month boundary")
+	}
+}

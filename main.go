@@ -38,6 +38,7 @@ func main() {
 		"DefaultProvider", cfg.DefaultProvider,
 		"DailyCostLimit", cfg.DailyCostLimit,
 		"MonthlyCostLimit", cfg.MonthlyCostLimit,
+		"HistoryFile", cfg.HistoryFile,
 	)
 
 	if err := runner.StartPolling(ctx); err != nil {

@@ -264,3 +264,33 @@ func TestLoadConfig_CostLimits(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadConfig_HistoryFile(t *testing.T) {
+	t.Run("unset gets the default file", func(t *testing.T) {
+		// t.Setenv first so the cleanup restores whatever the caller had.
+		t.Setenv("HISTORY_FILE", "yer-tutucu")
+		os.Unsetenv("HISTORY_FILE")
+
+		if got := LoadConfig().HistoryFile; got != defaultHistoryFile {
+			t.Errorf("HistoryFile = %q, want the default %q", got, defaultHistoryFile)
+		}
+	})
+
+	t.Run("explicitly empty disables persistence", func(t *testing.T) {
+		// This is the one setting where empty must not mean "use the default":
+		// it is how a user turns transcript storage off.
+		t.Setenv("HISTORY_FILE", "")
+
+		if got := LoadConfig().HistoryFile; got != "" {
+			t.Errorf("HistoryFile = %q, want empty so persistence stays off", got)
+		}
+	})
+
+	t.Run("custom path is used verbatim", func(t *testing.T) {
+		t.Setenv("HISTORY_FILE", "  /veri/scribo.jsonl  ")
+
+		if got := LoadConfig().HistoryFile; got != "/veri/scribo.jsonl" {
+			t.Errorf("HistoryFile = %q, want the trimmed custom path", got)
+		}
+	})
+}
