@@ -34,7 +34,7 @@
 
 - **🆓 Google Free Tier First Strategy:** Direct connection to official Google Gemini API ($0.00). If rate limits occur, interactively prompts the user for OpenRouter fallback.
 - **🎙️ Native Audio Processing:** Streams raw audio buffers directly to Gemini's multi-modal audio engine. Supports Voice Notes (`.ogg`), Audio (`.mp3`, `.m4a`, `.wav`, `.aac`, `.flac`), and Document audio files up to 20 MB.
-- **📋 Tap-to-Copy Output Formatting:** Formats AI summaries and transcripts using Telegram `<code>` inline tags for instant 1-tap clipboard copying without code block header clutter.
+- **📋 Per-Mode Output Formatting:** Every mode declares how its output is rendered — `code` (default) wraps the reply in Telegram `<code>` tags for instant 1-tap clipboard copying, `markdown` renders the model's markdown as real Telegram formatting for prose modes, `plain` sends it verbatim.
 - **🧩 100% JSON-Driven Modes (`modes.json`):** Prompt instructions and Telegram inline keyboard buttons are managed dynamically via JSON without recompiling code!
 - **⚡ Real-Time Chat Action Indicator:** Sends real-time "typing..." status while downloading audio and generating AI responses.
 - **🔒 Data Privacy Transparency:** Outlines clear privacy options between Google Free Tier ($0) and Paid/OpenRouter (strict privacy, zero model training).
@@ -125,18 +125,38 @@ To customize button names or add custom AI prompts, create a `modes.json` file i
 {
   "tldr": {
     "label": "📝 Özet",
-    "prompt": "Sen profesyonel bir ses analiz asistanısın..."
+    "prompt": "Sen profesyonel bir ses analiz asistanısın...",
+    "format": "code"
   },
   "trans": {
     "label": "✍️ Transkript",
-    "prompt": "Sen hassas bir ses deşifre sistemisin..."
+    "prompt": "Sen hassas bir ses deşifre sistemisin...",
+    "format": "code"
   },
   "fix": {
     "label": "🛠️ Düzelt",
-    "prompt": "Sen uzman bir editör ve dil düzeltme sistemisin..."
+    "prompt": "Sen uzman bir editör ve dil düzeltme sistemisin...",
+    "format": "code"
+  },
+  "blog": {
+    "label": "📰 Blog",
+    "prompt": "Kaydı markdown başlıklarıyla bir blog taslağına dönüştür...",
+    "format": "markdown"
   }
 }
 ```
+
+The first three are the built-in defaults; `blog` shows how a custom mode opts into markdown rendering.
+
+### Output format (`format`)
+
+Each mode picks how its output is rendered. The field is optional and defaults to `code`, so a `modes.json` written before this field existed keeps working unchanged.
+
+| Value | Rendering | Good for |
+|---|---|---|
+| `code` (default) | Wrapped in `<code>` — one tap copies the whole reply | Transcripts, corrections, anything you paste elsewhere |
+| `markdown` | Model markdown rendered as Telegram formatting: `**bold**`, `*italic*`, `~~strike~~`, links, `` `code` ``, fenced blocks. Headings become bold lines and bullets become `•`, since Telegram has no markup for either | Blog drafts, notes, prose |
+| `plain` | Sent verbatim, no formatting applied | Output that already contains markup you want to read literally |
 
 Scribo automatically creates `modes.json` on disk at startup if missing, re-creates the Telegram inline keyboard dynamically with alphabetical custom mode sorting, and applies your custom prompts!
 

@@ -108,6 +108,66 @@ func TestMode_LoadCustomModes_ValidJSON(t *testing.T) {
 	}
 }
 
+// A modes.json written before the format field existed must keep behaving exactly as
+// it did: every mode without a format renders as tap-to-copy code.
+func TestMode_FormatDefaultsToCodeWhenAbsent(t *testing.T) {
+	t.Cleanup(func() {
+		LoadModesFromBytes(defaultModesJSON, "restore defaults")
+	})
+
+	LoadModesFromBytes([]byte(`{"legacy": {"label": "L", "prompt": "p"}}`), "legacy modes")
+
+	m, ok := GetMode("legacy")
+	if !ok {
+		t.Fatal("expected mode 'legacy' to be loaded")
+	}
+	if m.Format != FormatCode {
+		t.Errorf("expected format %q for a mode without the field, got %q", FormatCode, m.Format)
+	}
+}
+
+func TestMode_FormatParsedFromJSON(t *testing.T) {
+	t.Cleanup(func() {
+		LoadModesFromBytes(defaultModesJSON, "restore defaults")
+	})
+
+	LoadModesFromBytes([]byte(`{
+		"md":      {"label": "M", "prompt": "p", "format": "markdown"},
+		"pl":      {"label": "P", "prompt": "p", "format": "plain"},
+		"cd":      {"label": "C", "prompt": "p", "format": "code"},
+		"unknown": {"label": "U", "prompt": "p", "format": "yaml"}
+	}`), "format modes")
+
+	tests := map[string]Format{
+		"md":      FormatMarkdown,
+		"pl":      FormatPlain,
+		"cd":      FormatCode,
+		"unknown": FormatCode, // unrecognised values must not disable rendering
+	}
+
+	for id, want := range tests {
+		m, ok := GetMode(id)
+		if !ok {
+			t.Fatalf("expected mode %q to be loaded", id)
+		}
+		if m.Format != want {
+			t.Errorf("mode %q: format = %q, want %q", id, m.Format, want)
+		}
+	}
+}
+
+func TestMode_DefaultModesDeclareCodeFormat(t *testing.T) {
+	for _, id := range []string{"tldr", "trans", "fix"} {
+		m, ok := GetMode(id)
+		if !ok {
+			t.Fatalf("expected default mode %q", id)
+		}
+		if m.Format != FormatCode {
+			t.Errorf("default mode %q: format = %q, want %q", id, m.Format, FormatCode)
+		}
+	}
+}
+
 func TestMode_ConcurrencySafety(t *testing.T) {
 	var wg sync.WaitGroup
 	for i := 0; i < 50; i++ {
