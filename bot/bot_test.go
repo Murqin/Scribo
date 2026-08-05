@@ -131,6 +131,159 @@ func TestExtractAudioTarget_Document(t *testing.T) {
 	}
 }
 
+func TestVideoMimeType(t *testing.T) {
+	tests := []struct {
+		name     string
+		declared string
+		fileName string
+		expected string
+	}{
+		{"declared mp4 wins", "video/mp4", "clip.avi", "video/mp4"},
+		{"declared uppercase is normalised", "VIDEO/WEBM", "clip.mp4", "video/webm"},
+		{"unsupported declared type falls back to extension", "video/x-matroska", "clip.mov", "video/mov"},
+		{"empty declared type uses extension", "", "clip.webm", "video/webm"},
+		{"unknown extension defaults to mp4", "", "clip.mkv", "video/mp4"},
+		{"missing name defaults to mp4", "", "", "video/mp4"},
+		{"mpg maps to mpeg", "", "clip.mpg", "video/mpeg"},
+		{"3gp maps to 3gpp", "", "clip.3gp", "video/3gpp"},
+		{"flv keeps the x- prefix", "", "clip.flv", "video/x-flv"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := videoMimeType(tt.declared, tt.fileName); got != tt.expected {
+				t.Errorf("videoMimeType(%q, %q) = %s; want %s", tt.declared, tt.fileName, got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestExtractAudioTarget_Video(t *testing.T) {
+	msg := &tgbotapi.Message{
+		Video: &tgbotapi.Video{
+			FileID:   "vid_123",
+			FileName: "meeting.mp4",
+			MimeType: "video/mp4",
+			FileSize: 1_048_576,
+			Duration: 90,
+		},
+	}
+
+	target := extractAudioTarget(msg)
+	if target == nil {
+		t.Fatal("expected non-nil AudioTarget for video")
+	}
+	if target.FileID != "vid_123" || target.MimeType != "video/mp4" {
+		t.Errorf("unexpected target: %+v", target)
+	}
+	if target.Name != "meeting.mp4" || target.Duration != 90 || target.FileSize != 1_048_576 {
+		t.Errorf("unexpected target metadata: %+v", target)
+	}
+	if !isVideoMimeType(target.MimeType) {
+		t.Errorf("expected %s to be recognised as video", target.MimeType)
+	}
+}
+
+func TestExtractAudioTarget_VideoWithoutFileName(t *testing.T) {
+	// Telegram omits the file name for videos it transcoded itself.
+	msg := &tgbotapi.Message{
+		Video: &tgbotapi.Video{
+			FileID:   "vid_456",
+			FileSize: 2048,
+			Duration: 12,
+		},
+	}
+
+	target := extractAudioTarget(msg)
+	if target == nil {
+		t.Fatal("expected non-nil AudioTarget for video without file name")
+	}
+	if target.Name != "Video" || target.MimeType != "video/mp4" {
+		t.Errorf("unexpected target: %+v", target)
+	}
+}
+
+func TestExtractAudioTarget_VideoNote(t *testing.T) {
+	msg := &tgbotapi.Message{
+		VideoNote: &tgbotapi.VideoNote{
+			FileID:   "note_789",
+			FileSize: 4096,
+			Duration: 20,
+		},
+	}
+
+	target := extractAudioTarget(msg)
+	if target == nil {
+		t.Fatal("expected non-nil AudioTarget for video note")
+	}
+	if target.FileID != "note_789" || target.MimeType != "video/mp4" {
+		t.Errorf("unexpected target: %+v", target)
+	}
+	if target.Name != "Video Mesajı" || target.Duration != 20 {
+		t.Errorf("unexpected target metadata: %+v", target)
+	}
+}
+
+func TestExtractAudioTarget_VideoDocument(t *testing.T) {
+	// A video sent "as file" arrives as a Document.
+	msgVideoDoc := &tgbotapi.Message{
+		Document: &tgbotapi.Document{
+			FileID:   "doc_mov_111",
+			FileName: "screen.mov",
+			MimeType: "video/quicktime",
+			FileSize: 8192,
+		},
+	}
+
+	target := extractAudioTarget(msgVideoDoc)
+	if target == nil {
+		t.Fatal("expected non-nil AudioTarget for video document")
+	}
+	// video/quicktime is not in Gemini's list, so the extension decides.
+	if target.MimeType != "video/mov" {
+		t.Errorf("unexpected mime type: %s", target.MimeType)
+	}
+
+	msgMkvDoc := &tgbotapi.Message{
+		Document: &tgbotapi.Document{
+			FileID:   "doc_mkv_222",
+			FileName: "movie.mkv",
+			FileSize: 8192,
+		},
+	}
+
+	if extractAudioTarget(msgMkvDoc) != nil {
+		t.Error("expected nil AudioTarget for unsupported video container (.mkv)")
+	}
+}
+
+func TestExtractAudioTarget_VoiceWinsOverVideo(t *testing.T) {
+	// A single Telegram message never carries both, but the branch order is
+	// what keeps audio on the cheaper audio path if it ever did.
+	msg := &tgbotapi.Message{
+		Voice: &tgbotapi.Voice{FileID: "voice_1", Duration: 5},
+		Video: &tgbotapi.Video{FileID: "video_1", Duration: 5},
+	}
+
+	target := extractAudioTarget(msg)
+	if target == nil || target.FileID != "voice_1" || target.MimeType != "audio/ogg" {
+		t.Errorf("expected voice to take precedence, got %+v", target)
+	}
+}
+
+func TestIsVideoMimeType(t *testing.T) {
+	for _, mt := range []string{"video/mp4", "video/webm", "video/x-flv"} {
+		if !isVideoMimeType(mt) {
+			t.Errorf("expected %s to be video", mt)
+		}
+	}
+	for _, mt := range []string{"audio/ogg", "audio/mp3", ""} {
+		if isVideoMimeType(mt) {
+			t.Errorf("expected %s not to be video", mt)
+		}
+	}
+}
+
 func TestIsAuthorized(t *testing.T) {
 	// 1. Restricted User ID
 	runnerRestricted := &BotRunner{
