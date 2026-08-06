@@ -153,6 +153,8 @@ func seedBudget(tracker *budget.Tracker, store *history.Store, cfg *config.Confi
 }
 
 func (b *BotRunner) StartPolling(ctx context.Context) error {
+	b.registerCommands()
+
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 60
 

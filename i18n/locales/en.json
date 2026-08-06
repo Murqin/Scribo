@@ -1,4 +1,8 @@
 {
+  "command.start.name": "start",
+  "command.start.description": "Show what the bot accepts",
+  "command.last.name": "last",
+  "command.last.description": "Replay the most recent output",
   "bot.start": "🎙️ <b>Scribo Bot is ready!</b>\nSend a voice note, a video, a video message or an audio file.\n\n/last — replays the most recent output.",
   "bot.unsupported_input": "🎙️ Please send a voice note, an audio file (MP3, M4A, WAV, FLAC, OGG), a video or a video message (MP4, MOV, WEBM, AVI) to be analysed.",
   "bot.file_too_large": "⚠️ <b>Error:</b> The file is too large (Telegram bot limit: 20 MB).",

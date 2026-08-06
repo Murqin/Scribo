@@ -333,6 +333,8 @@ type mockTelegramClient struct {
 	// that keeps sending while the test reads what was sent.
 	mu           sync.Mutex
 	sentMessages []tgbotapi.Chattable
+	requests     []tgbotapi.Chattable
+	requestErr   error
 	fileURL      string
 	fileURLErr   error
 }
@@ -358,7 +360,19 @@ func (m *mockTelegramClient) GetFileDirectURL(fileID string) (string, error) {
 }
 
 func (m *mockTelegramClient) Request(c tgbotapi.Chattable) (*tgbotapi.APIResponse, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.requests = append(m.requests, c)
+	if m.requestErr != nil {
+		return nil, m.requestErr
+	}
 	return &tgbotapi.APIResponse{Ok: true}, nil
+}
+
+func (m *mockTelegramClient) requested() []tgbotapi.Chattable {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]tgbotapi.Chattable(nil), m.requests...)
 }
 
 func (m *mockTelegramClient) GetUpdatesChan(config tgbotapi.UpdateConfig) tgbotapi.UpdatesChannel {
