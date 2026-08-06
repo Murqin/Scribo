@@ -144,10 +144,12 @@ To run a locally built image, comment out `image:` in `docker-compose.yml` and u
 
 ## 💬 Using the Bot
 
-| Command | What it does |
-| :--- | :--- |
-| `/start` | Confirms the bot is running and lists what you can send it. |
-| `/son` | Replays the most recent output of this chat, rendered in its original mode's format. Survives a restart, since it is read back from `HISTORY_FILE`. |
+| Command | Turkish alias | What it does |
+| :--- | :--- | :--- |
+| `/start` | `/basla` | Confirms the bot is running and lists what you can send it. |
+| `/last` | `/son` | Replays the most recent output of this chat, rendered in its original mode's format. Survives a restart, since it is read back from `HISTORY_FILE`. |
+
+Both names work whatever `SCRIBO_LANG` is set to; only the name the bot advertises in its greeting follows the language. `/start` in particular can never stop working, since Telegram's own Start button and `t.me` deep links send it. The alias is spelled `basla` rather than `başla` because Telegram restricts command names to `a-z`, `0-9` and underscore.
 
 There is nothing else to type. Send a voice note, a video, a video message, an audio file — or any of them as a document — and Scribo replies with an inline keyboard of the modes from `modes.json`; pick one and it processes the media. Files are capped at 20 MB by Telegram's bot API.
 
