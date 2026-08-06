@@ -335,6 +335,16 @@ docker compose logs -f
 
 ---
 
+## 🤝 Contributing
+
+Pull requests are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) covers the setup, the
+design constraints that shape what fits here, and the testing bar. Coding agents
+should read [AGENTS.md](AGENTS.md) instead — same ground, condensed into directives.
+
+Issues and discussion in English or Turkish; code and commits in English.
+
+---
+
 ## 📄 License
 
 Licensed under the terms of the **MIT License**. See [LICENSE](LICENSE) for details.
