@@ -516,6 +516,7 @@ type mockAIProvider struct {
 	mu     sync.Mutex
 	name   string
 	calls  int
+	prompt string
 	result *provider.AIResult
 	err    error
 }
@@ -525,6 +526,7 @@ func (m *mockAIProvider) Name() string { return m.name }
 func (m *mockAIProvider) Generate(ctx context.Context, systemPrompt, audioBase64, mimeType string) (*provider.AIResult, error) {
 	m.mu.Lock()
 	m.calls++
+	m.prompt = systemPrompt
 	m.mu.Unlock()
 
 	if m.err != nil {
@@ -537,6 +539,14 @@ func (m *mockAIProvider) callCount() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.calls
+}
+
+// lastPrompt is what the model was actually told to do — the only place the
+// answer language is decided.
+func (m *mockAIProvider) lastPrompt() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.prompt
 }
 
 // sentTexts collects the message bodies the bot produced, whatever envelope

@@ -79,9 +79,7 @@ func TestMode_LoadCustomModes_InvalidJSONResilience(t *testing.T) {
 }
 
 func TestMode_LoadCustomModes_ValidJSON(t *testing.T) {
-	t.Cleanup(func() {
-		LoadModesFromBytes(defaultModesJSON, "restore defaults")
-	})
+	t.Cleanup(LoadDefaultModes)
 
 	tmpDir := t.TempDir()
 	validFile := filepath.Join(tmpDir, "modes.json")
@@ -111,9 +109,7 @@ func TestMode_LoadCustomModes_ValidJSON(t *testing.T) {
 // A modes.json written before the format field existed must keep behaving exactly as
 // it did: every mode without a format renders as tap-to-copy code.
 func TestMode_FormatDefaultsToCodeWhenAbsent(t *testing.T) {
-	t.Cleanup(func() {
-		LoadModesFromBytes(defaultModesJSON, "restore defaults")
-	})
+	t.Cleanup(LoadDefaultModes)
 
 	LoadModesFromBytes([]byte(`{"legacy": {"label": "L", "prompt": "p"}}`), "legacy modes")
 
@@ -127,9 +123,7 @@ func TestMode_FormatDefaultsToCodeWhenAbsent(t *testing.T) {
 }
 
 func TestMode_FormatParsedFromJSON(t *testing.T) {
-	t.Cleanup(func() {
-		LoadModesFromBytes(defaultModesJSON, "restore defaults")
-	})
+	t.Cleanup(LoadDefaultModes)
 
 	LoadModesFromBytes([]byte(`{
 		"md":      {"label": "M", "prompt": "p", "format": "markdown"},
@@ -185,9 +179,7 @@ func TestMode_ConcurrencySafety(t *testing.T) {
 }
 
 func TestMode_GetModeKeyboard_CustomModesDeterministicOrder(t *testing.T) {
-	t.Cleanup(func() {
-		LoadModesFromBytes(defaultModesJSON, "restore defaults")
-	})
+	t.Cleanup(LoadDefaultModes)
 
 	customJSON := `{
 		"z_mode": {"label": "Z Mode", "prompt": "p1"},

@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"scribo/i18n"
 )
 
 type Pricing struct {
@@ -144,7 +146,7 @@ func (p *OpenRouterProvider) Name() string {
 
 func (p *OpenRouterProvider) Generate(ctx context.Context, systemPrompt, audioBase64, mimeType string) (*AIResult, error) {
 	if p.APIKey == "" {
-		return nil, fmt.Errorf("OpenRouter API key bulunamadı")
+		return nil, fmt.Errorf("no OpenRouter API key configured")
 	}
 
 	audioFormat := "ogg"
@@ -169,7 +171,7 @@ func (p *OpenRouterProvider) Generate(ctx context.Context, systemPrompt, audioBa
 			{
 				Role: "user",
 				Content: []OpenRouterContentItem{
-					{Type: "text", Text: "İşle."},
+					{Type: "text", Text: i18n.T("prompt.user_turn")},
 					{
 						Type: "input_audio",
 						InputAudio: &OpenRouterContentAudioItem{
@@ -238,7 +240,7 @@ func (p *OpenRouterProvider) Generate(ctx context.Context, systemPrompt, audioBa
 		}
 
 		if len(resData.Choices) == 0 {
-			return nil, fmt.Errorf("OpenRouter yanıtında geçerli seçim bulunamadı")
+			return nil, fmt.Errorf("the OpenRouter response carried no choice")
 		}
 
 		pricing := p.GetDynamicPricing(ctx, p.Model)

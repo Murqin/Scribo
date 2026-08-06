@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"scribo/i18n"
 )
 
 type GooglePartInlineData struct {
@@ -86,7 +88,7 @@ func (p *GoogleProvider) Name() string {
 
 func (p *GoogleProvider) Generate(ctx context.Context, systemPrompt, audioBase64, mimeType string) (*AIResult, error) {
 	if p.APIKey == "" {
-		return nil, fmt.Errorf("Google API key bulunamadı")
+		return nil, fmt.Errorf("no Google API key configured")
 	}
 
 	baseURL := p.BaseURL
@@ -104,7 +106,7 @@ func (p *GoogleProvider) Generate(ctx context.Context, systemPrompt, audioBase64
 		Contents: []GoogleContent{
 			{
 				Parts: []GooglePart{
-					{Text: "İşle."},
+					{Text: i18n.T("prompt.user_turn")},
 					{
 						InlineData: &GooglePartInlineData{
 							MimeType: mimeType,
@@ -170,11 +172,11 @@ func (p *GoogleProvider) Generate(ctx context.Context, systemPrompt, audioBase64
 		}
 
 		if resData.PromptFeedback != nil && resData.PromptFeedback.BlockReason != "" {
-			return nil, fmt.Errorf("istek güvenlik filtresine takıldı (%s)", resData.PromptFeedback.BlockReason)
+			return nil, fmt.Errorf("the request was blocked by a safety filter (%s)", resData.PromptFeedback.BlockReason)
 		}
 
 		if len(resData.Candidates) == 0 {
-			return nil, fmt.Errorf("Yanıtta aday (candidate) bulunamadı")
+			return nil, fmt.Errorf("the response carried no candidate")
 		}
 
 		candidate := resData.Candidates[0]
@@ -190,14 +192,14 @@ func (p *GoogleProvider) Generate(ctx context.Context, systemPrompt, audioBase64
 
 		if text == "" {
 			if candidate.FinishReason != "" && candidate.FinishReason != "STOP" {
-				return nil, fmt.Errorf("model yanıt üretmeden durdu (finishReason: %s)", candidate.FinishReason)
+				return nil, fmt.Errorf("the model stopped without producing an answer (finishReason: %s)", candidate.FinishReason)
 			}
-			return nil, fmt.Errorf("Yanıtta geçerli içerik/part bulunamadı")
+			return nil, fmt.Errorf("the response carried no usable content part")
 		}
 
 		// A truncated answer is still worth delivering, but the user must know it is one.
 		if candidate.FinishReason == "MAX_TOKENS" {
-			text += "\n\n[...yanıt uzunluk sınırına takıldı ve kesildi]"
+			text += i18n.T("prompt.truncated")
 		}
 
 		result := &AIResult{Text: text, TotalCost: 0.0}

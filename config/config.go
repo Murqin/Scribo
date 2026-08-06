@@ -23,6 +23,7 @@ type Config struct {
 	DailyCostLimit    float64
 	MonthlyCostLimit  float64
 	HistoryFile       string
+	Language          string
 
 	// costLimitErr defers a malformed spending limit to Validate so startup
 	// fails loudly instead of running without the ceiling that was asked for.
@@ -71,8 +72,23 @@ func LoadConfig() *Config {
 		DailyCostLimit:    dailyLimit,
 		MonthlyCostLimit:  monthlyLimit,
 		HistoryFile:       historyFile(),
+		Language:          language(),
 		costLimitErr:      costLimitErr,
 	}
+}
+
+// language reports the requested interface and prompt language.
+//
+// SCRIBO_LANG comes first because LANG is usually already set by the shell:
+// loadDotEnv never overwrites an existing variable, so a LANG=en line in .env
+// would be silently ignored on a machine whose locale is Turkish. SCRIBO_LANG is
+// the setting that always works from .env; LANG is honoured for the plain
+// `LANG=en ./scribo` case.
+func language() string {
+	if val := getEnv("SCRIBO_LANG", ""); val != "" {
+		return val
+	}
+	return getEnv("LANG", "")
 }
 
 // defaultHistoryFile is where transcripts land when HISTORY_FILE says nothing.
@@ -99,17 +115,17 @@ func parseCostLimit(key string) (float64, error) {
 	}
 	val, err := strconv.ParseFloat(raw, 64)
 	if err != nil || val < 0 {
-		return 0, fmt.Errorf("%s pozitif bir ondalık sayı olmalı (okunan: %q)", key, raw)
+		return 0, fmt.Errorf("%s must be a positive decimal number (got %q)", key, raw)
 	}
 	return val, nil
 }
 
 func (c *Config) Validate() error {
 	if c.TelegramToken == "" {
-		return fmt.Errorf("TELEGRAM_TOKEN zorunludur ancak tanımlı değil")
+		return fmt.Errorf("TELEGRAM_TOKEN is required but not set")
 	}
 	if c.GeminiAPIKey == "" && c.OpenRouterAPIKey == "" {
-		return fmt.Errorf("En az bir AI API anahtarı (GEMINI_API_KEY veya OPENROUTER_API_KEY) tanımlanmalıdır")
+		return fmt.Errorf("at least one AI API key (GEMINI_API_KEY or OPENROUTER_API_KEY) must be set")
 	}
 	return c.costLimitErr
 }
