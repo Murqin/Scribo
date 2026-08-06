@@ -31,12 +31,12 @@ release: build-linux-amd64 build-linux-arm64 build-windows-amd64 build-windows-a
 	cp scribo-windows-arm64.exe dist/scribo-windows-arm64/scribo/scribo.exe
 	cp scribo-darwin-amd64 dist/scribo-darwin-amd64/scribo/scribo
 	cp scribo-darwin-arm64 dist/scribo-darwin-arm64/scribo/scribo
-	cp setup_service.sh restart.sh stop.sh uninstall.sh README.md LICENSE dist/scribo-linux-amd64/scribo/
-	cp setup_service.sh restart.sh stop.sh uninstall.sh README.md LICENSE dist/scribo-linux-arm64/scribo/
-	cp README.md LICENSE dist/scribo-windows-amd64/scribo/
-	cp README.md LICENSE dist/scribo-windows-arm64/scribo/
-	cp README.md LICENSE dist/scribo-darwin-amd64/scribo/
-	cp README.md LICENSE dist/scribo-darwin-arm64/scribo/
+	cp setup_service.sh restart.sh stop.sh uninstall.sh README.md README.tr.md LICENSE dist/scribo-linux-amd64/scribo/
+	cp setup_service.sh restart.sh stop.sh uninstall.sh README.md README.tr.md LICENSE dist/scribo-linux-arm64/scribo/
+	cp README.md README.tr.md LICENSE dist/scribo-windows-amd64/scribo/
+	cp README.md README.tr.md LICENSE dist/scribo-windows-arm64/scribo/
+	cp README.md README.tr.md LICENSE dist/scribo-darwin-amd64/scribo/
+	cp README.md README.tr.md LICENSE dist/scribo-darwin-arm64/scribo/
 	# modes.json is deliberately not shipped: the bot writes it on first run in
 	# the language SCRIBO_LANG selects. A pre-seeded Turkish file would pin an
 	# English deployment to Turkish prompts.
