@@ -18,21 +18,38 @@ services:
     container_name: scribo
     restart: unless-stopped
 
-    # Secrets and settings come from .env. Compose reads that file host-side and
-    # injects the values as environment variables, which the bot prefers over
-    # any .env it finds on disk — so nothing sensitive has to be mounted.
+    # Settings come from .env. Compose reads it host-side and injects the values
+    # as environment variables, which the bot prefers over any .env it finds on
+    # disk — so nothing sensitive has to be mounted.
+    #
+    # required: false because home server panels import this file on its own,
+    # with no .env next to it, and supply the values through their own form
+    # instead. Without it the stack refuses to start for exactly those users.
     env_file:
-      - .env
+      - path: .env
+        required: false
 
-    # Deliberately no `environment:` block. TZ, PUID and PGID belong in .env
-    # alongside everything else, and the image already defaults them (UTC, 1000,
-    # 1000). Declaring them here through compose interpolation would be worse
-    # than redundant: home server panels scan the file for interpolation syntax
-    # and present every match as a field to fill in, without reading the default
-    # that follows it — so the import screen asks for three values that already
-    # have answers, and a panel that then writes an empty TZ would override the
-    # one in .env. Note the syntax is not even written out in this comment, for
-    # the same reason: those scanners do not skip comments.
+    # Only the three settings that have no sensible default are declared here.
+    # A panel builds its import form from this list, so this is the one channel
+    # through which a panel user can supply them at all — but the list is kept
+    # to what genuinely has no answer. TZ, PUID and PGID are deliberately absent:
+    # the image already defaults them (UTC, 1000, 1000), so asking would present
+    # answered settings as blanks, and a panel writing an empty TZ would put the
+    # daily spending cap back on UTC midnight.
+    #
+    # Anything else from .env.example — OPENROUTER_API_KEY, SCRIBO_LANG, the
+    # spending ceilings — can be added as an extra environment variable in the
+    # panel, or simply left to its default.
+    #
+    # Do not grow this list casually. A variable declared here is *set* even when
+    # it resolves to nothing, and HISTORY_FILE reads an empty value as "keep no
+    # history" rather than "use the default" — declaring it would silently turn
+    # off both the transcript history and the spending ceiling's memory for
+    # everyone who did not fill the field in.
+    environment:
+      TELEGRAM_TOKEN: ${TELEGRAM_TOKEN:-}
+      ALLOWED_USER_ID: ${ALLOWED_USER_ID:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
 
     volumes:
       # Holds modes.json (written on first run, edit it to change prompts and

@@ -126,7 +126,21 @@ Varsayılan adlandırılmış birimle hiçbir ayar gerekmez. Bind mount'a geçer
 
 `TZ` de `.env`e yazılır ve ayarlamaya değer: günlük harcama tavanı yerel takvim sınırında sıfırlanır, yani zaman dilimi ayarlı değilse tavanınız sizin gece yarınızda değil UTC gece yarısında sıfırlanır.
 
-> Kurulum sırasında `PUID`, `PGID` veya `TZ` doldurmanızı isteyen paneller size **zorunlu alan değil, isteğe bağlı geçersiz kılma** gösteriyor — imaj bunları zaten `1000`, `1000` ve `UTC` olarak ayarlıyor. Boş bırakmanız sorun değil.
+> Panel size `PUID`, `PGID` veya `TZ` sormaz — imaj bunları zaten `1000`, `1000` ve `UTC` olarak ayarladığı için compose dosyasında tanımlı değiller. Varsayılanlar işinizi görmüyorsa `.env`e yazın ya da panelde ek ortam değişkeni olarak ekleyin.
+
+### 📥 Panel neyi sorar
+
+Paneller kurulum formunu compose dosyasından üretir; Scribo da yalnızca makul bir varsayılanı olmayan üç ayarı tanımlar:
+
+| Alan | |
+| :--- | :--- |
+| `TELEGRAM_TOKEN` | zorunlu |
+| `ALLOWED_USER_ID` | `ALLOW_ALL_USERS=true` yapmadıysanız zorunlu |
+| `GEMINI_API_KEY` | yerine `OPENROUTER_API_KEY` vermediyseniz zorunlu |
+
+Geri kalan her şey varsayılanında kalır. Birini değiştirmek isterseniz — `OPENROUTER_API_KEY`, `SCRIBO_LANG`, harcama tavanları — [`.env.example`](.env.example) içindeki adıyla panele ek ortam değişkeni olarak ekleyin.
+
+Compose'u kendiniz mi çalıştırıyorsunuz? `.env` hepsini kapsar ve compose açısından dosya isteğe bağlıdır; yani aynı `docker-compose.yml` her iki yolda da çalışır.
 
 ### 🏠 Panel başına notlar
 
