@@ -122,7 +122,11 @@ Bu birimi kaybetmek hem özel prompt'larınızı siler hem de size taze bir gün
 
 ### 👤 Bind mount'ta dosya sahipliği (`PUID` / `PGID`)
 
-Varsayılan adlandırılmış birimle hiçbir ayar gerekmez. Bind mount'a geçerseniz — CasaOS ve Cosmos Cloud genelde sizin yerinize bunu yapar — ana makinedeki dizinin konteynerin kullanıcısı tarafından yazılabilir olması gerekir. Ya `PUID`/`PGID` değerlerini o dizinin sahibine ayarlayın ya da dizini `chown -R 1000:1000` ile devredin. Konteyner yalnızca `/data`'yı devretmeye yetecek kadar root olarak başlar, sonra istenen kullanıcıya iner ve orada kalır.
+Varsayılan adlandırılmış birimle hiçbir ayar gerekmez. Bind mount'a geçerseniz — CasaOS ve Cosmos Cloud genelde sizin yerinize bunu yapar — ana makinedeki dizinin konteynerin kullanıcısı tarafından yazılabilir olması gerekir. Ya `.env` içindeki `PUID`/`PGID` değerlerini o dizinin sahibine ayarlayın ya da dizini `chown -R 1000:1000` ile devredin. Konteyner yalnızca `/data`'yı devretmeye yetecek kadar root olarak başlar, sonra istenen kullanıcıya iner ve orada kalır.
+
+`TZ` de `.env`e yazılır ve ayarlamaya değer: günlük harcama tavanı yerel takvim sınırında sıfırlanır, yani zaman dilimi ayarlı değilse tavanınız sizin gece yarınızda değil UTC gece yarısında sıfırlanır.
+
+> Kurulum sırasında `PUID`, `PGID` veya `TZ` doldurmanızı isteyen paneller size **zorunlu alan değil, isteğe bağlı geçersiz kılma** gösteriyor — imaj bunları zaten `1000`, `1000` ve `UTC` olarak ayarlıyor. Boş bırakmanız sorun değil.
 
 ### 🏠 Panel başına notlar
 
