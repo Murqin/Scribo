@@ -4,19 +4,22 @@
   <img src="assets/mascot.jpg" alt="Scribo Mascot" width="180" style="border-radius: 50%;"/>
 </p>
 
-> **Scribo is a high-performance, ultra-lightweight Telegram bot written in Go (Golang). It captures voice notes, MP3s, audio files, and videos, processing them natively using Google Gemini AI (Free Tier) with an interactive OpenRouter fallback. Runs 24/7 on VPS environments consuming under 10 MB RAM.**
+> **Scribo is a high-performance, ultra-lightweight Telegram bot written in Go (Golang). It captures voice notes, MP3s, audio files, and videos, processing them natively using Google Gemini AI (Free Tier) with an interactive OpenRouter fallback. Runs 24/7 on a VPS, a home server or a container consuming under 10 MB RAM.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](LICENSE)
 [![Tech: Go](https://img.shields.io/badge/Language-Go-00ADD8?style=flat-square&logo=go&logoColor=white)](#)
 [![Model: Gemini 3.6 Flash](https://img.shields.io/badge/Model-Gemini%203.6%20Flash-red?style=flat-square&logo=google&logoColor=white)](#)
 [![Infrastructure: Cross-Platform](https://img.shields.io/badge/Infrastructure-Linux%20%7C%20Windows%20%7C%20macOS-blue?style=flat-square)](#)
+[![Container: GHCR](https://img.shields.io/badge/Container-ghcr.io-2496ED?style=flat-square&logo=docker&logoColor=white)](https://github.com/Murqin/Scribo/pkgs/container/scribo)
+
+**🌍 Language:** **English** · [Türkçe](README.tr.md)
 
 ---
 
 ## ⚡ Performance Highlights (Go Architecture)
 
 - **Memory Footprint:** **~6-10 MB RAM** (vs ~60 MB in Python runtime).
-- **Binary Size:** **~6.3 MB** standalone static binary. Zero runtime dependencies.
+- **Binary Size:** **~6.6 MB** standalone static binary. Zero runtime dependencies.
 - **Startup Speed:** Instant startup (<10ms local init) with zero cold-starts and high-concurrency Goroutines.
 - **Portless & SSL-Free:** Uses 100% Outbound Telegram Long Polling (no domain, no SSL, no open ports needed).
 
@@ -82,13 +85,23 @@ Non-developers can run Scribo without installing Go or compiling code:
 
 ## 🐳 Docker & Home Server Panels
 
-A multi-architecture image (`linux/amd64`, `linux/arm64`) is published to GitHub Container Registry on every release, so no Go toolchain is needed:
+A multi-architecture image (`linux/amd64`, `linux/arm64`) is published to GitHub Container Registry on every push to `main` and every tagged release, so no Go toolchain and no clone are needed:
+
+```
+ghcr.io/murqin/scribo:latest
+```
 
 ```bash
-cp .env.example .env     # fill in TELEGRAM_TOKEN, ALLOWED_USER_ID, GEMINI_API_KEY
+# Fetch the two files you need, without cloning the repository
+curl -O https://raw.githubusercontent.com/Murqin/Scribo/main/docker-compose.yml
+curl -o .env https://raw.githubusercontent.com/Murqin/Scribo/main/.env.example
+
+nano .env                # fill in TELEGRAM_TOKEN, ALLOWED_USER_ID, GEMINI_API_KEY
 docker compose up -d
 docker compose logs -f
 ```
+
+`.env` has to exist before `docker compose up`, because the compose file reads your settings from it.
 
 The runtime image is **~15 MB** and the bot inside it still idles at ~10 MB RAM.
 
@@ -126,6 +139,17 @@ make docker-build DOCKER=podman   # Podman works as a drop-in
 ```
 
 To run a locally built image, comment out `image:` in `docker-compose.yml` and uncomment the `build:` block underneath it.
+
+---
+
+## 💬 Using the Bot
+
+| Command | What it does |
+| :--- | :--- |
+| `/start` | Confirms the bot is running and lists what you can send it. |
+| `/son` | Replays the most recent output of this chat, rendered in its original mode's format. Survives a restart, since it is read back from `HISTORY_FILE`. |
+
+There is nothing else to type. Send a voice note, a video, a video message, an audio file — or any of them as a document — and Scribo replies with an inline keyboard of the modes from `modes.json`; pick one and it processes the media. Files are capped at 20 MB by Telegram's bot API.
 
 ---
 
