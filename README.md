@@ -42,6 +42,7 @@
 - **⚡ Real-Time Chat Action Indicator:** Sends real-time "typing..." status while downloading audio and generating AI responses.
 - **🔒 Data Privacy Transparency:** Outlines clear privacy options between Google Free Tier ($0) and Paid/OpenRouter (strict privacy, zero model training).
 - **📦 Zero-Code Multi-Arch Distribution:** Ready-to-run release archives for Linux (`amd64`, `arm64`), Windows (`amd64`, `arm64`), and macOS (`Intel amd64`, `Apple Silicon M1-M4 arm64`).
+- **🐳 Container-Ready:** A ~15 MB multi-arch image (`amd64`, `arm64`) with a ready-made `docker-compose.yml` for CasaOS, Cosmos Cloud, Portainer and Dockge. Runs unprivileged, needs no published port, and keeps its state on a single volume.
 
 ---
 
@@ -76,6 +77,55 @@ Non-developers can run Scribo without installing Go or compiling code:
      ```bash
      ./scribo
      ```
+
+---
+
+## 🐳 Docker & Home Server Panels
+
+A multi-architecture image (`linux/amd64`, `linux/arm64`) is published to GitHub Container Registry on every release, so no Go toolchain is needed:
+
+```bash
+cp .env.example .env     # fill in TELEGRAM_TOKEN, ALLOWED_USER_ID, GEMINI_API_KEY
+docker compose up -d
+docker compose logs -f
+```
+
+The runtime image is **~15 MB** and the bot inside it still idles at ~10 MB RAM.
+
+### 🔌 No ports, no domain, no reverse proxy
+
+Scribo reaches Telegram through **outbound long polling only**. The container publishes no port and listens on nothing, so there is no reverse proxy entry, no subdomain and no certificate to arrange. When a panel asks for a port or a URL during installation, leave it blank — the bot is a background worker, not a web app, and it has no web interface.
+
+### 💾 Persistent data (`/data`)
+
+The container's working directory is `/data`, and everything worth keeping lands there:
+
+| File | Purpose |
+| :--- | :--- |
+| `modes.json` | Written on first run in the language `SCRIBO_LANG` selects. Edit it to change prompts and buttons, then restart. |
+| `scribo_history.jsonl` | Transcript history behind `/son`, and the record the spending ceiling is restored from after a restart. |
+
+Losing this volume hands out a fresh daily spending allowance and drops your custom prompts, so include it in backups.
+
+### 👤 File ownership on bind mounts (`PUID` / `PGID`)
+
+With the default named volume nothing needs configuring. If you switch to a bind mount — which CasaOS and Cosmos Cloud usually do for you — the host directory has to be writable by the container's user. Either set `PUID`/`PGID` to the owner of that directory, or `chown -R 1000:1000` it. The container starts as root only long enough to hand `/data` over, then drops to the requested user for good.
+
+### 🏠 Per-platform notes
+
+- **CasaOS** — *Apps → Custom Install → Import*, paste `docker-compose.yml`, then fill the environment variables in the form. Leave the web UI port empty.
+- **Cosmos Cloud** — *ServApps → New ServApp → Docker Compose*, paste the same file. Skip the URL/route step; without a listening port there is nothing to route.
+- **Portainer / Dockge** — deploy as a stack from this repository or from the pasted compose file; upload your `.env` alongside it.
+- **YunoHost** — YunoHost packages apps natively with systemd rather than running containers, so there is no Docker app catalogue to install this from. On a YunoHost box the fitting route is the systemd path (`sudo ./setup_service.sh`) described above. The compose file still works if you installed Docker on the server yourself, but that is outside what YunoHost supports.
+
+### 🔨 Building the image yourself
+
+```bash
+make docker-build            # docker build -t scribo:local .
+make docker-build DOCKER=podman   # Podman works as a drop-in
+```
+
+To run a locally built image, comment out `image:` in `docker-compose.yml` and uncomment the `build:` block underneath it.
 
 ---
 
@@ -214,16 +264,27 @@ make release
 # Generates release packages in dist/ directory (tar.gz & zip)
 ```
 
+### Container Image
+```bash
+make docker-build   # build scribo:local
+make docker-up      # docker compose up -d
+make docker-logs    # docker compose logs -f
+make docker-down    # docker compose down
+```
+
 ---
 
-## 📊 Monitoring Logs (Systemd)
+## 📊 Monitoring Logs
 
 ```bash
-# Follow live logs
+# Systemd — follow live logs
 sudo journalctl -u scribo -f
 
-# View last 50 log entries
+# Systemd — view last 50 log entries
 sudo journalctl -u scribo -n 50 --no-pager
+
+# Docker — follow live logs
+docker compose logs -f
 ```
 
 ---

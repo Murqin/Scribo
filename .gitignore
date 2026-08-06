@@ -45,7 +45,14 @@
 !.github/
 !.github/**
 
-# 6. Whitelist production deployment scripts
+# 6. Whitelist container deployment
+!.dockerignore
+!Dockerfile
+!docker-compose.yml
+!docker/
+!docker/*.sh
+
+# 7. Whitelist production deployment scripts
 !setup_service.sh
 !setup_keepalive.sh
 !restart.sh
