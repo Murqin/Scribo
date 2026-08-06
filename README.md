@@ -122,7 +122,11 @@ Losing this volume hands out a fresh daily spending allowance and drops your cus
 
 ### 👤 File ownership on bind mounts (`PUID` / `PGID`)
 
-With the default named volume nothing needs configuring. If you switch to a bind mount — which CasaOS and Cosmos Cloud usually do for you — the host directory has to be writable by the container's user. Either set `PUID`/`PGID` to the owner of that directory, or `chown -R 1000:1000` it. The container starts as root only long enough to hand `/data` over, then drops to the requested user for good.
+With the default named volume nothing needs configuring. If you switch to a bind mount — which CasaOS and Cosmos Cloud usually do for you — the host directory has to be writable by the container's user. Either set `PUID`/`PGID` in `.env` to the owner of that directory, or `chown -R 1000:1000` it. The container starts as root only long enough to hand `/data` over, then drops to the requested user for good.
+
+`TZ` belongs in `.env` too, and it is worth setting: the daily spending ceiling rolls over on a local calendar boundary, so an unset zone resets your cap at UTC midnight rather than yours.
+
+> Panels that ask you to fill in `PUID`, `PGID` or `TZ` during import are showing you optional overrides, not blanks you have to complete — the image already defaults them to `1000`, `1000` and `UTC`. Leaving them empty is fine.
 
 ### 🏠 Per-platform notes
 

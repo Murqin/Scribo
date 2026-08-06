@@ -24,16 +24,15 @@ services:
     env_file:
       - .env
 
-    environment:
-      # The daily and monthly spending ceilings roll over on local calendar
-      # boundaries. Without a zone the container is UTC and the daily cap would
-      # reset at the wrong hour.
-      TZ: ${TZ:-Europe/Istanbul}
-      # Ownership the container gives /data before dropping root. Set these to
-      # the host user that owns the directory when using a bind mount; irrelevant
-      # for the named volume below.
-      PUID: ${PUID:-1000}
-      PGID: ${PGID:-1000}
+    # Deliberately no `environment:` block. TZ, PUID and PGID belong in .env
+    # alongside everything else, and the image already defaults them (UTC, 1000,
+    # 1000). Declaring them here through compose interpolation would be worse
+    # than redundant: home server panels scan the file for interpolation syntax
+    # and present every match as a field to fill in, without reading the default
+    # that follows it — so the import screen asks for three values that already
+    # have answers, and a panel that then writes an empty TZ would override the
+    # one in .env. Note the syntax is not even written out in this comment, for
+    # the same reason: those scanners do not skip comments.
 
     volumes:
       # Holds modes.json (written on first run, edit it to change prompts and
@@ -43,7 +42,7 @@ services:
       - scribo-data:/data
       # Bind mount alternative — CasaOS and Cosmos usually rewrite it to this
       # form anyway. Run `chown -R 1000:1000 ./data` on the host first, or set
-      # PUID/PGID above to match the directory's owner.
+      # PUID/PGID in .env to match the directory's owner.
       # - ./data:/data
 
     # No `ports:`. Scribo reaches Telegram over outbound long polling, so it
