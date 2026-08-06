@@ -37,12 +37,15 @@ release: build-linux-amd64 build-linux-arm64 build-windows-amd64 build-windows-a
 	cp README.md LICENSE dist/scribo-windows-arm64/scribo/
 	cp README.md LICENSE dist/scribo-darwin-amd64/scribo/
 	cp README.md LICENSE dist/scribo-darwin-arm64/scribo/
-	cp modes.example.json dist/scribo-linux-amd64/scribo/modes.json
-	cp modes.example.json dist/scribo-linux-arm64/scribo/modes.json
-	cp modes.example.json dist/scribo-windows-amd64/scribo/modes.json
-	cp modes.example.json dist/scribo-windows-arm64/scribo/modes.json
-	cp modes.example.json dist/scribo-darwin-amd64/scribo/modes.json
-	cp modes.example.json dist/scribo-darwin-arm64/scribo/modes.json
+	# modes.json is deliberately not shipped: the bot writes it on first run in
+	# the language SCRIBO_LANG selects. A pre-seeded Turkish file would pin an
+	# English deployment to Turkish prompts.
+	cp modes.example.json dist/scribo-linux-amd64/scribo/modes.example.json
+	cp modes.example.json dist/scribo-linux-arm64/scribo/modes.example.json
+	cp modes.example.json dist/scribo-windows-amd64/scribo/modes.example.json
+	cp modes.example.json dist/scribo-windows-arm64/scribo/modes.example.json
+	cp modes.example.json dist/scribo-darwin-amd64/scribo/modes.example.json
+	cp modes.example.json dist/scribo-darwin-arm64/scribo/modes.example.json
 	cp .env.example dist/scribo-linux-amd64/scribo/.env
 	cp .env.example dist/scribo-linux-arm64/scribo/.env
 	cp .env.example dist/scribo-windows-amd64/scribo/.env
@@ -55,7 +58,7 @@ release: build-linux-amd64 build-linux-arm64 build-windows-amd64 build-windows-a
 	python3 -m zipfile -c dist/scribo-windows-arm64.zip dist/scribo-windows-arm64/scribo
 	tar -czvf dist/scribo-darwin-amd64.tar.gz -C dist/scribo-darwin-amd64 scribo
 	tar -czvf dist/scribo-darwin-arm64.tar.gz -C dist/scribo-darwin-arm64 scribo
-	@echo "✅ Hazır yayın paketleri dist/ klasöründe oluşturuldu!"
+	@echo "✅ Release packages are ready under dist/"
 
 run: build
 	./scribo

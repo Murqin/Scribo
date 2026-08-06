@@ -19,6 +19,7 @@ import (
 	"scribo/budget"
 	"scribo/config"
 	"scribo/history"
+	"scribo/i18n"
 	"scribo/mode"
 	"scribo/provider"
 
@@ -91,23 +92,23 @@ func NewBotRunner(cfg *config.Config) (*BotRunner, error) {
 		return nil, err
 	}
 
-	slog.Info("🤖 Telegram Bot yetkilendirildi", "username", bot.Self.UserName, "maxConcurrentJobs", cfg.MaxConcurrentJobs)
+	slog.Info("🤖 Telegram bot authorised", "username", bot.Self.UserName, "maxConcurrentJobs", cfg.MaxConcurrentJobs, "language", i18n.Language())
 
 	if len(cfg.AllowedUserIDs) == 0 {
 		if cfg.AllowAllUsers {
-			slog.Warn("⚠️ Bot herkese açık (ALLOW_ALL_USERS=true). API kotanız yabancılar tarafından harcanabilir.")
+			slog.Warn("⚠️ the bot is open to everyone (ALLOW_ALL_USERS=true); strangers can spend your API quota")
 		} else {
-			slog.Warn("⚠️ ALLOWED_USER_ID tanımlı değil — bot hiçbir kullanıcıya yanıt vermeyecek. " +
-				"Kendi Telegram ID'nizi @userinfobot'tan alıp .env dosyasına yazın.")
+			slog.Warn("⚠️ ALLOWED_USER_ID is unset — the bot will answer nobody. " +
+				"Get your Telegram ID from @userinfobot and put it in .env.")
 		}
 	}
 
 	store, err := history.Open(cfg.HistoryFile)
 	if err != nil {
-		return nil, fmt.Errorf("geçmiş dosyası açılamadı (%s): %w", cfg.HistoryFile, err)
+		return nil, fmt.Errorf("could not open the history file (%s): %w", cfg.HistoryFile, err)
 	}
 	if store == nil {
-		slog.Warn("⚠️ HISTORY_FILE boş — çıktılar kaydedilmeyecek ve harcama sayacı her yeniden başlatmada sıfırlanacak.")
+		slog.Warn("⚠️ HISTORY_FILE is empty — outputs will not be stored and the spending counter resets on every restart")
 	}
 
 	tracker := budget.New(cfg.DailyCostLimit, cfg.MonthlyCostLimit)
@@ -138,15 +139,15 @@ func seedBudget(tracker *budget.Tracker, store *history.Store, cfg *config.Confi
 	daily, monthly, err := store.Spend(time.Now())
 	if err != nil {
 		if cfg.DailyCostLimit > 0 || cfg.MonthlyCostLimit > 0 {
-			return fmt.Errorf("harcama tavanı tanımlı ancak geçmiş okunamadı (%s): %w", store.Path(), err)
+			return fmt.Errorf("a spending ceiling is configured but the history could not be read (%s): %w", store.Path(), err)
 		}
-		slog.Warn("⚠️ Geçmiş okunamadı, harcama sayacı sıfırdan başlıyor", "error", err)
+		slog.Warn("⚠️ history unreadable, the spending counter starts from zero", "error", err)
 		return nil
 	}
 
 	tracker.Seed(daily, monthly)
 	if daily > 0 || monthly > 0 {
-		slog.Info("💰 Harcama sayacı geçmişten yüklendi", "daily", daily, "monthly", monthly)
+		slog.Info("💰 spending counter restored from history", "daily", daily, "monthly", monthly)
 	}
 	return nil
 }
@@ -161,9 +162,9 @@ func (b *BotRunner) StartPolling(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			b.api.StopReceivingUpdates()
-			slog.Info("🛑 Polling durduruluyor, aktif işlemlerin tamamlanması bekleniyor...")
+			slog.Info("🛑 stopping polling, waiting for active jobs to finish...")
 			b.wg.Wait()
-			slog.Info("✅ Tüm aktif işlemler tamamlandı.")
+			slog.Info("✅ all active jobs finished")
 			return nil
 		case update, ok := <-updates:
 			if !ok {
@@ -269,7 +270,7 @@ func extractAudioTarget(msg *tgbotapi.Message) *AudioTarget {
 			FileID:   msg.Voice.FileID,
 			FileSize: msg.Voice.FileSize,
 			Duration: msg.Voice.Duration,
-			Name:     "Ses Kaydı",
+			Name:     i18n.T("media.voice"),
 			MimeType: "audio/ogg",
 		}
 	}
@@ -286,7 +287,7 @@ func extractAudioTarget(msg *tgbotapi.Message) *AudioTarget {
 	if msg.Video != nil {
 		name := msg.Video.FileName
 		if name == "" {
-			name = "Video"
+			name = i18n.T("media.video")
 		}
 		return &AudioTarget{
 			FileID:   msg.Video.FileID,
@@ -303,7 +304,7 @@ func extractAudioTarget(msg *tgbotapi.Message) *AudioTarget {
 			FileID:   msg.VideoNote.FileID,
 			FileSize: msg.VideoNote.FileSize,
 			Duration: msg.VideoNote.Duration,
-			Name:     "Video Mesajı",
+			Name:     i18n.T("media.video_note"),
 			MimeType: "video/mp4",
 		}
 	}
@@ -339,7 +340,7 @@ func (b *BotRunner) handleMessage(ctx context.Context, msg *tgbotapi.Message) {
 	if msg.IsCommand() {
 		switch msg.Command() {
 		case "start":
-			reply := tgbotapi.NewMessage(msg.Chat.ID, "🎙️ <b>Scribo Bot Hazır!</b>\nBir ses kaydı, video, video mesajı veya ses dosyası gönderin.\n\n/son — en son üretilen çıktıyı tekrar gösterir.")
+			reply := tgbotapi.NewMessage(msg.Chat.ID, i18n.T("bot.start"))
 			reply.ParseMode = tgbotapi.ModeHTML
 			b.sendMsg(reply)
 			return
@@ -353,7 +354,7 @@ func (b *BotRunner) handleMessage(ctx context.Context, msg *tgbotapi.Message) {
 	if audioTarget != nil {
 		// Check 20 MB Telegram bot limit
 		if audioTarget.FileSize > 20*1024*1024 {
-			reply := tgbotapi.NewMessage(msg.Chat.ID, "⚠️ <b>Hata:</b> Dosya boyutu çok büyük (Maksimum Telegram bot limiti: 20 MB).")
+			reply := tgbotapi.NewMessage(msg.Chat.ID, i18n.T("bot.file_too_large"))
 			reply.ParseMode = tgbotapi.ModeHTML
 			reply.ReplyToMessageID = msg.MessageID
 			b.sendMsg(reply)
@@ -362,10 +363,10 @@ func (b *BotRunner) handleMessage(ctx context.Context, msg *tgbotapi.Message) {
 
 		warningText := ""
 		if audioTarget.Duration > 90 {
-			warningText = fmt.Sprintf("\n\n⚠️ <b>Uyarı:</b> Ses kaydı uzun (%d sn). Processing biraz zaman alabilir.", audioTarget.Duration)
+			warningText = i18n.T("bot.long_media_warning", audioTarget.Duration)
 		}
 
-		replyText := fmt.Sprintf("🚀 <b>%s</b> alındı! Bir işlem modu seçiniz:%s", html.EscapeString(audioTarget.Name), warningText)
+		replyText := i18n.T("bot.media_received", html.EscapeString(audioTarget.Name), warningText)
 		reply := tgbotapi.NewMessage(msg.Chat.ID, replyText)
 		reply.ParseMode = tgbotapi.ModeHTML
 		reply.ReplyToMessageID = msg.MessageID
@@ -377,7 +378,7 @@ func (b *BotRunner) handleMessage(ctx context.Context, msg *tgbotapi.Message) {
 
 	// Guidance message for unsupported inputs
 	if !msg.IsCommand() {
-		reply := tgbotapi.NewMessage(msg.Chat.ID, "🎙️ Lütfen analiz edilmek üzere bir ses kaydı (Voice note), ses dosyası (MP3, M4A, WAV, FLAC, OGG), video veya video mesajı (MP4, MOV, WEBM, AVI) gönderin.")
+		reply := tgbotapi.NewMessage(msg.Chat.ID, i18n.T("bot.unsupported_input"))
 		reply.ReplyToMessageID = msg.MessageID
 		b.sendMsg(reply)
 	}
@@ -385,7 +386,7 @@ func (b *BotRunner) handleMessage(ctx context.Context, msg *tgbotapi.Message) {
 
 func (b *BotRunner) handleCallbackQuery(ctx context.Context, cb *tgbotapi.CallbackQuery) {
 	if !b.isAuthorized(cb.From.ID) {
-		callbackCfg := tgbotapi.NewCallback(cb.ID, "Yetkisiz kullanıcı.")
+		callbackCfg := tgbotapi.NewCallback(cb.ID, i18n.T("bot.unauthorized"))
 		callbackCfg.ShowAlert = true
 		b.api.Request(callbackCfg)
 		return
@@ -395,7 +396,7 @@ func (b *BotRunner) handleCallbackQuery(ctx context.Context, cb *tgbotapi.Callba
 
 	data := cb.Data
 	if data == "cancel_paid" {
-		editMsg := tgbotapi.NewEditMessageText(cb.Message.Chat.ID, cb.Message.MessageID, "❌ İşlem iptal edildi.")
+		editMsg := tgbotapi.NewEditMessageText(cb.Message.Chat.ID, cb.Message.MessageID, i18n.T("bot.cancelled"))
 		b.sendMsg(editMsg)
 		return
 	}
@@ -415,14 +416,14 @@ func (b *BotRunner) handleCallbackQuery(ctx context.Context, cb *tgbotapi.Callba
 
 	audioTarget := extractAudioTarget(audioMsg)
 	if audioTarget == nil {
-		editMsg := tgbotapi.NewEditMessageText(cb.Message.Chat.ID, cb.Message.MessageID, "❌ Kaynak ses dosyası bulunamadı.")
+		editMsg := tgbotapi.NewEditMessageText(cb.Message.Chat.ID, cb.Message.MessageID, i18n.T("bot.source_not_found"))
 		b.sendMsg(editMsg)
 		return
 	}
 
 	lockKey := fmt.Sprintf("%d:%d", cb.Message.Chat.ID, cb.Message.MessageID)
 	if !b.tryLock(lockKey) {
-		slog.Warn("Çift tıklama veya aynı mesaj üzerinde devam eden işlem engellendi", "key", lockKey)
+		slog.Warn("double tap or a job already running on this message was blocked", "key", lockKey)
 		return
 	}
 
@@ -430,7 +431,7 @@ func (b *BotRunner) handleCallbackQuery(ctx context.Context, cb *tgbotapi.Callba
 	case b.workerSem <- struct{}{}:
 	case <-ctx.Done():
 		b.unlock(lockKey)
-		slog.Warn("Bağlam sonlandırıldı, işlem iptal edildi", "key", lockKey)
+		slog.Warn("context cancelled, job dropped", "key", lockKey)
 		return
 	}
 
@@ -476,25 +477,25 @@ func (b *BotRunner) processVoice(ctx context.Context, chatID int64, fileID strin
 		modeInfo, _ = mode.GetMode("tldr")
 	}
 
-	msg := tgbotapi.NewEditMessageText(chatID, statusMsgID, fmt.Sprintf("🔄 <b>%s</b> hazırlanıyor...", modeInfo.Label))
+	msg := tgbotapi.NewEditMessageText(chatID, statusMsgID, i18n.T("bot.preparing", modeInfo.Label))
 	msg.ParseMode = tgbotapi.ModeHTML
 	b.sendMsg(msg)
 
 	fileURL, err := b.api.GetFileDirectURL(fileID)
 	if err != nil {
-		b.sendError(chatID, statusMsgID, modeID, fmt.Sprintf("Ses dosyası URL'si alınamadı: %v", err))
+		b.sendError(chatID, statusMsgID, modeID, i18n.T("err.file_url", err))
 		return
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "GET", fileURL, nil)
 	if err != nil {
-		b.sendError(chatID, statusMsgID, modeID, fmt.Sprintf("İstek oluşturulamadı: %v", err))
+		b.sendError(chatID, statusMsgID, modeID, i18n.T("err.request_create", err))
 		return
 	}
 
 	resp, err := b.httpClient.Do(req)
 	if err != nil {
-		b.sendError(chatID, statusMsgID, modeID, fmt.Sprintf("Ses dosyası indirilemedi: %v", err))
+		b.sendError(chatID, statusMsgID, modeID, i18n.T("err.download", err))
 		return
 	}
 	defer resp.Body.Close()
@@ -503,18 +504,18 @@ func (b *BotRunner) processVoice(ctx context.Context, chatID int64, fileID strin
 	limitReader := io.LimitReader(resp.Body, 20*1024*1024+1024)
 	audioBytes, err := io.ReadAll(limitReader)
 	if err != nil {
-		b.sendError(chatID, statusMsgID, modeID, fmt.Sprintf("Ses dosyası okunamadı: %v", err))
+		b.sendError(chatID, statusMsgID, modeID, i18n.T("err.read", err))
 		return
 	}
 
 	if len(audioBytes) > 20*1024*1024 {
-		b.sendError(chatID, statusMsgID, modeID, "İndirilen dosya boyutu 20 MB sınırını aştı.")
+		b.sendError(chatID, statusMsgID, modeID, i18n.T("err.too_large_downloaded"))
 		return
 	}
 
 	base64Audio := base64.StdEncoding.EncodeToString(audioBytes)
-	currentTimeStr := time.Now().Format("02 January 2006 Monday, Saat: 15:04")
-	systemPrompt := fmt.Sprintf("%s\n\nNot: Bugünün tarihi: %s. Göreceli zamanları buna göre hesapla.", modeInfo.Prompt, currentTimeStr)
+	currentTimeStr := time.Now().Format(i18n.T("prompt.date_format"))
+	systemPrompt := i18n.T("prompt.date_note", modeInfo.Prompt, currentTimeStr)
 
 	selectedProvider := forceProvider
 	if selectedProvider == "" {
@@ -523,15 +524,15 @@ func (b *BotRunner) processVoice(ctx context.Context, chatID int64, fileID strin
 
 	// 1. Google Provider Try
 	if selectedProvider != "openrouter" && b.cfg.GeminiAPIKey != "" {
-		gMsg := tgbotapi.NewEditMessageText(chatID, statusMsgID, fmt.Sprintf("🔄 <b>%s</b> hazırlanıyor... (Google Free Tier)", modeInfo.Label))
+		gMsg := tgbotapi.NewEditMessageText(chatID, statusMsgID, i18n.T("bot.preparing_google", modeInfo.Label))
 		gMsg.ParseMode = tgbotapi.ModeHTML
 		b.sendMsg(gMsg)
 
 		res, gErr := b.googleProvider.Generate(ctx, systemPrompt, base64Audio, mimeType)
 		if gErr == nil {
-			detail := "<b>Google Free Tier</b> (<code>$0.00000</code>)"
+			detail := i18n.T("cost.google")
 			if res.PromptTokens > 0 || res.CompletionTokens > 0 {
-				detail = fmt.Sprintf("<b>Google Free Tier</b> (<code>$0.00000</code>)\n├ Token: %d (P: %d, C: %d)",
+				detail = i18n.T("cost.google_tokens",
 					res.PromptTokens+res.CompletionTokens, res.PromptTokens, res.CompletionTokens)
 			}
 			b.record(chatID, modeInfo, "google", mimeType, res)
@@ -544,39 +545,36 @@ func (b *BotRunner) processVoice(ctx context.Context, chatID int64, fileID strin
 		// OpenRouter carries media in an input_audio content part, so there is
 		// no paid fallback worth offering for video: the call could only fail.
 		if isVideoMimeType(mimeType) {
-			slog.Warn("Google API başarısız, video için OpenRouter devri atlandı", "error", safeErr)
+			slog.Warn("Google failed; no OpenRouter fallback is offered for video", "error", safeErr)
 			b.sendError(chatID, statusMsgID, modeID,
-				fmt.Sprintf("Google ile işlenemedi: %s\n\nVideo yalnızca Google üzerinden işlenebiliyor.", gErr))
+				i18n.T("err.google_failed", safeErr, i18n.T("err.video_google_only")))
 			return
 		}
 
 		// Offering the paid button when the ceiling is already reached would
 		// only lead to a refusal one tap later.
 		if limitErr := b.budget.Check(); limitErr != nil {
-			slog.Warn("Google API başarısız, harcama tavanı dolu olduğu için OpenRouter devri sunulmadı",
+			slog.Warn("Google failed; the paid fallback was not offered because the spending ceiling is reached",
 				"error", safeErr, "limit", limitErr)
 			b.sendError(chatID, statusMsgID, modeID,
-				fmt.Sprintf("Google ile işlenemedi: %s\n\n%s", safeErr, budgetRefusalText(limitErr)))
+				i18n.T("err.google_failed", safeErr, budgetRefusalText(limitErr)))
 			return
 		}
 
-		slog.Warn("Google API başarısız, OpenRouter onayı soruluyor", "error", safeErr)
+		slog.Warn("Google failed, asking for OpenRouter confirmation", "error", safeErr)
 		errShort := html.EscapeString(safeErr)
 		if len(errShort) > 200 {
 			errShort = errShort[:200] + "..."
 		}
 
-		promptText := fmt.Sprintf(
-			"⚠️ <b>Google Free Tier ile işlem yapılamadı!</b>\n<i>Sebep: %s</i>\n\nÜcretli <b>OpenRouter (%s)</b> servisi üzerinden devam etmek istiyor musunuz?",
-			errShort, html.EscapeString(b.cfg.OpenRouterModel),
-		)
+		promptText := i18n.T("bot.paid_prompt", errShort, html.EscapeString(b.cfg.OpenRouterModel))
 
 		confirmKeyboard := tgbotapi.NewInlineKeyboardMarkup(
 			tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonData("💳 Ücretli (OpenRouter) İle Çalıştır", "paid:"+modeID),
+				tgbotapi.NewInlineKeyboardButtonData(i18n.T("bot.btn_paid"), "paid:"+modeID),
 			),
 			tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonData("❌ İptal Et", "cancel_paid"),
+				tgbotapi.NewInlineKeyboardButtonData(i18n.T("bot.btn_cancel"), "cancel_paid"),
 			),
 		)
 
@@ -589,26 +587,25 @@ func (b *BotRunner) processVoice(ctx context.Context, chatID int64, fileID strin
 
 	// 2. OpenRouter Provider Try
 	if isVideoMimeType(mimeType) {
-		b.sendError(chatID, statusMsgID, modeID,
-			"Video yalnızca Google üzerinden işlenebiliyor; OpenRouter ses dışı içerik kabul etmiyor.")
+		b.sendError(chatID, statusMsgID, modeID, i18n.T("err.video_no_fallback"))
 		return
 	}
 
 	// The last gate before money is spent. Every paid path reaches this point,
 	// including the "paid:" callback the user tapped on the fallback prompt.
 	if limitErr := b.budget.Check(); limitErr != nil {
-		slog.Warn("Harcama tavanı nedeniyle ücretli çağrı reddedildi", "limit", limitErr)
+		slog.Warn("paid call refused by the spending ceiling", "limit", limitErr)
 		b.sendError(chatID, statusMsgID, modeID, budgetRefusalText(limitErr))
 		return
 	}
 
-	orMsg := tgbotapi.NewEditMessageText(chatID, statusMsgID, fmt.Sprintf("🔄 <b>%s</b> hazırlanıyor... (OpenRouter)", modeInfo.Label))
+	orMsg := tgbotapi.NewEditMessageText(chatID, statusMsgID, i18n.T("bot.preparing_openrouter", modeInfo.Label))
 	orMsg.ParseMode = tgbotapi.ModeHTML
 	b.sendMsg(orMsg)
 
 	res, err := b.openRouterProvider.Generate(ctx, systemPrompt, base64Audio, mimeType)
 	if err != nil {
-		b.sendError(chatID, statusMsgID, modeID, fmt.Sprintf("OpenRouter Hatası: %v", err))
+		b.sendError(chatID, statusMsgID, modeID, i18n.T("err.openrouter", err))
 		return
 	}
 
@@ -619,7 +616,7 @@ func (b *BotRunner) processVoice(ctx context.Context, chatID int64, fileID strin
 	if line := budgetSummaryLine(b.budget.Snapshot()); line != "" {
 		costLine, budgetLine = "├", "\n"+line
 	}
-	costInfo := fmt.Sprintf("<b>OpenRouter</b>\n├ Token: %d (P: %d, C: %d)\n%s Maliyet: <code>$%s</code>%s",
+	costInfo := i18n.T("cost.openrouter",
 		res.PromptTokens+res.CompletionTokens, res.PromptTokens, res.CompletionTokens,
 		costLine, fmt.Sprintf("%.5f", res.TotalCost), budgetLine)
 
@@ -646,7 +643,7 @@ func (b *BotRunner) record(chatID int64, modeInfo mode.ModeInfo, providerName, m
 		Cost:             res.TotalCost,
 	})
 	if err != nil {
-		slog.Error("Geçmişe yazılamadı; bu çıktı /son ile geri alınamayacak ve maliyeti yeniden başlatmada unutulacak",
+		slog.Error("could not write to history; /son will not return this output and its cost is forgotten on restart",
 			"error", err, "cost", res.TotalCost)
 	}
 }
@@ -661,18 +658,18 @@ func (b *BotRunner) sendLastEntry(chatID int64, replyTo int) {
 	}
 
 	if b.history == nil {
-		reply("📭 Geçmiş kapalı (HISTORY_FILE tanımsız), önceki çıktılar saklanmıyor.")
+		reply(i18n.T("history.disabled"))
 		return
 	}
 
 	entry, found, err := b.history.Last(chatID)
 	if err != nil {
-		slog.Error("Geçmiş okunamadı", "error", err)
-		reply("❌ Geçmiş okunamadı.")
+		slog.Error("could not read the history", "error", err)
+		reply(i18n.T("history.read_error"))
 		return
 	}
 	if !found {
-		reply("📭 Bu sohbette kayıtlı çıktı yok. Bir ses kaydı gönderip bir mod seçin.")
+		reply(i18n.T("history.empty"))
 		return
 	}
 
@@ -681,9 +678,9 @@ func (b *BotRunner) sendLastEntry(chatID int64, replyTo int) {
 		label = m.Label
 	}
 
-	header := tgbotapi.NewMessage(chatID, fmt.Sprintf("📄 <b>Son çıktı</b>\n└ %s · %s · %s",
+	header := tgbotapi.NewMessage(chatID, i18n.T("history.last_header",
 		html.EscapeString(label), html.EscapeString(entry.Provider),
-		entry.At.Local().Format("02.01.2006 15:04")))
+		entry.At.Local().Format(i18n.T("history.time_format"))))
 	header.ParseMode = tgbotapi.ModeHTML
 	header.ReplyToMessageID = replyTo
 	b.sendMsg(header)
@@ -701,18 +698,15 @@ func (b *BotRunner) sendLastEntry(chatID int64, replyTo int) {
 func budgetRefusalText(err error) string {
 	var limitErr *budget.LimitError
 	if !errors.As(err, &limitErr) {
-		return "💸 Harcama tavanı denetimi nedeniyle ücretli çağrı yapılmadı."
+		return i18n.T("budget.refused_generic")
 	}
 
-	window, envVar := "Günlük", "DAILY_COST_LIMIT"
+	window, envVar := i18n.T("budget.window_daily"), "DAILY_COST_LIMIT"
 	if limitErr.Window == budget.WindowMonthly {
-		window, envVar = "Aylık", "MONTHLY_COST_LIMIT"
+		window, envVar = i18n.T("budget.window_monthly"), "MONTHLY_COST_LIMIT"
 	}
 
-	return fmt.Sprintf(
-		"💸 %s harcama tavanına ulaşıldı ($%.5f / $%.5f), ücretli OpenRouter çağrısı yapılmadı.\n"+
-			"Tavanı .env dosyasındaki %s ile değiştirebilirsiniz.",
-		window, limitErr.Spent, limitErr.Limit, envVar)
+	return i18n.T("budget.refused", window, limitErr.Spent, limitErr.Limit, envVar)
 }
 
 // budgetSummaryLine reports remaining budget in the usage summary. It is empty
@@ -724,15 +718,15 @@ func budgetSummaryLine(s budget.Status) string {
 
 	var parts []string
 	if s.DailyLimit > 0 {
-		parts = append(parts, fmt.Sprintf("günlük $%.5f/$%.5f", s.DailySpent, s.DailyLimit))
+		parts = append(parts, i18n.T("budget.summary_daily", s.DailySpent, s.DailyLimit))
 	}
 	if s.MonthlyLimit > 0 {
-		parts = append(parts, fmt.Sprintf("aylık $%.5f/$%.5f", s.MonthlySpent, s.MonthlyLimit))
+		parts = append(parts, i18n.T("budget.summary_monthly", s.MonthlySpent, s.MonthlyLimit))
 	}
 
-	prefix := "└ Bütçe"
+	prefix := i18n.T("budget.summary_prefix")
 	if s.NearLimit() {
-		prefix = "└ ⚠️ Bütçe"
+		prefix = i18n.T("budget.summary_prefix_warning")
 	}
 	return prefix + ": " + strings.Join(parts, " · ")
 }
@@ -740,7 +734,7 @@ func budgetSummaryLine(s budget.Status) string {
 func (b *BotRunner) sendSuccessResponse(chatID int64, statusMsgID int, cleanText string, costDetail string, format mode.Format) {
 	chunks := splitForFormat(cleanText, format)
 	if len(chunks) == 0 {
-		chunks = []string{"İşlem tamamlandı."}
+		chunks = []string{i18n.T("bot.empty_result")}
 	}
 
 	firstChunkText, firstParseMode := renderChunk(chunks[0], format)
@@ -761,7 +755,7 @@ func (b *BotRunner) sendSuccessResponse(chatID int64, statusMsgID int, cleanText
 		b.sendChunk(chatID, c, format)
 	}
 
-	costMsgText := fmt.Sprintf("📊 <b>Kullanım Özeti:</b>\n└ Servis: %s", costDetail)
+	costMsgText := i18n.T("bot.usage_summary", costDetail)
 	costMsg := tgbotapi.NewMessage(chatID, costMsgText)
 	costMsg.ParseMode = tgbotapi.ModeHTML
 	b.sendMsg(costMsg)
@@ -782,11 +776,11 @@ func (b *BotRunner) sendChunk(chatID int64, chunk string, format mode.Format) {
 
 func (b *BotRunner) sendError(chatID int64, statusMsgID int, modeID string, errText string) {
 	errText = b.cfg.Redact(errText)
-	slog.Error("İşlem hatası", "chatID", chatID, "error", errText)
-	txt := fmt.Sprintf("❌ <b>İşlem Hatası:</b>\n<pre>%s</pre>", html.EscapeString(errText))
+	slog.Error("processing error", "chatID", chatID, "error", errText)
+	txt := i18n.T("bot.error", html.EscapeString(errText))
 	retryKb := tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("🔄 Tekrar Dene", modeID),
+			tgbotapi.NewInlineKeyboardButtonData(i18n.T("bot.btn_retry"), modeID),
 		),
 	)
 
@@ -798,7 +792,7 @@ func (b *BotRunner) sendError(chatID int64, statusMsgID int, modeID string, errT
 
 func (b *BotRunner) sendMsg(chg tgbotapi.Chattable) {
 	if _, err := b.api.Send(chg); err != nil {
-		slog.Error("Telegram mesaj gönderimi başarısız", "error", err)
+		slog.Error("sending the Telegram message failed", "error", err)
 	}
 }
 

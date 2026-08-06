@@ -294,3 +294,30 @@ func TestLoadConfig_HistoryFile(t *testing.T) {
 		}
 	})
 }
+
+func TestLoadConfig_LanguagePrefersScriboLangOverLocale(t *testing.T) {
+	tests := []struct {
+		name       string
+		scriboLang string
+		lang       string
+		want       string
+	}{
+		{"neither set", "", "", ""},
+		{"locale only", "", "en_US.UTF-8", "en_US.UTF-8"},
+		{"explicit only", "en", "", "en"},
+		// The realistic trap: a Turkish desktop exports LANG, and loadDotEnv
+		// refuses to overwrite it, so LANG=en in .env would never take effect.
+		{"explicit wins over locale", "en", "tr_TR.UTF-8", "en"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("SCRIBO_LANG", tt.scriboLang)
+			t.Setenv("LANG", tt.lang)
+
+			if got := LoadConfig().Language; got != tt.want {
+				t.Errorf("Language = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}

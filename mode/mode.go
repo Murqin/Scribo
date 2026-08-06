@@ -1,18 +1,38 @@
 package mode
 
 import (
-	_ "embed"
+	"bytes"
+	"embed"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"os"
 	"sort"
 	"sync"
 
+	"scribo/i18n"
+
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
-//go:embed default_modes.json
-var defaultModesJSON []byte
+//go:embed default_modes.*.json
+var defaultModesFS embed.FS
+
+// defaultModes returns the built-in mode set for the active language. Both the
+// button labels and the prompts differ per language: a translated interface in
+// front of a Turkish prompt would still produce Turkish answers.
+func defaultModes() []byte {
+	data, err := defaultModesFS.ReadFile(fmt.Sprintf("default_modes.%s.json", i18n.Language()))
+	if err == nil {
+		return data
+	}
+	// A language with a text catalog but no mode file still gets a working bot.
+	data, err = defaultModesFS.ReadFile("default_modes." + i18n.DefaultLanguage + ".json")
+	if err != nil {
+		panic("mode: default mode set unusable: " + err.Error())
+	}
+	return data
+}
 
 // Format selects how a mode's output is rendered in Telegram. Wrapping everything in
 // <code> is right for transcripts (one tap copies them) but destroys the markdown that
@@ -53,10 +73,12 @@ func init() {
 	LoadDefaultModes()
 }
 
-// LoadDefaultModes restores the embedded mode set, discarding anything loaded from
-// disk. Modes live in package-level state, so tests that swap them need a way back.
+// LoadDefaultModes restores the embedded mode set for the active language,
+// discarding anything loaded from disk. Modes live in package-level state, so
+// tests that swap them need a way back — and so does a language switch, which
+// happens after this package has already initialised itself in Turkish.
 func LoadDefaultModes() {
-	LoadModesFromBytes(defaultModesJSON, "gömülü varsayılan modlar")
+	LoadModesFromBytes(defaultModes(), "embedded default modes ("+i18n.Language()+")")
 }
 
 func GetMode(id string) (ModeInfo, bool) {
@@ -69,7 +91,7 @@ func GetMode(id string) (ModeInfo, bool) {
 func LoadModesFromBytes(data []byte, sourceName string) bool {
 	var customModes map[string]ModeInfo
 	if err := json.Unmarshal(data, &customModes); err != nil {
-		slog.Error("⚠️ Parse hatası, varsayılan modlar korunuyor", "source", sourceName, "error", err)
+		slog.Error("⚠️ parse error, keeping the current modes", "source", sourceName, "error", err)
 		return false
 	}
 
@@ -78,7 +100,7 @@ func LoadModesFromBytes(data []byte, sourceName string) bool {
 		m.ID = id
 		if !m.Format.valid() {
 			if m.Format != "" {
-				slog.Warn("⚠️ Bilinmeyen format, 'code' varsayılıyor", "source", sourceName, "mode", id, "format", m.Format)
+				slog.Warn("⚠️ unknown format, defaulting to 'code'", "source", sourceName, "mode", id, "format", m.Format)
 			}
 			m.Format = FormatCode
 		}
@@ -89,28 +111,59 @@ func LoadModesFromBytes(data []byte, sourceName string) bool {
 	modes = newModes
 	modesMu.Unlock()
 
-	slog.Info("✅ Modlar yüklendi", "source", sourceName, "count", len(newModes))
+	slog.Info("✅ modes loaded", "source", sourceName, "count", len(newModes))
 	return true
 }
 
 func LoadCustomModes(filename string) {
-	if _, err := os.Stat(filename); os.IsNotExist(err) {
-		if writeErr := os.WriteFile(filename, defaultModesJSON, 0644); writeErr != nil {
-			slog.Error("⚠️ Varsayılan modes.json dosyası oluşturulamadı", "filename", filename, "error", writeErr)
-		} else {
-			slog.Info("📝 Varsayılan modes.json dosyası otomatik oluşturuldu", "filename", filename)
-		}
+	data, err := os.ReadFile(filename)
+	if os.IsNotExist(err) {
+		writeDefaultModes(filename)
+		return
+	}
+	if err != nil {
+		slog.Error("⚠️ could not read the external modes file", "filename", filename, "error", err)
 		return
 	}
 
-	data, err := os.ReadFile(filename)
-	if err != nil {
-		slog.Error("⚠️ Harici mod dosyası okunurken hata", "filename", filename, "error", err)
+	// A file that still matches a default set verbatim was written by an earlier
+	// run, not by the user. Leaving it in place after a language change would
+	// translate the interface but not the prompts, so the model would keep
+	// answering in the old language — the one thing this setting exists to fix.
+	// A file the user has actually edited is never touched.
+	if isGeneratedDefault(data) && !bytes.Equal(data, defaultModes()) {
+		slog.Info("♻️ regenerating the modes file for the active language",
+			"filename", filename, "language", i18n.Language())
+		writeDefaultModes(filename)
 		return
 	}
 
 	// Unmarshal safely into temporary map first without clearing current modes
 	LoadModesFromBytes(data, filename)
+}
+
+func writeDefaultModes(filename string) {
+	if err := os.WriteFile(filename, defaultModes(), 0644); err != nil {
+		slog.Error("⚠️ could not create the default modes file", "filename", filename, "error", err)
+		return
+	}
+	slog.Info("📝 default modes file created", "filename", filename, "language", i18n.Language())
+}
+
+// isGeneratedDefault reports whether the bytes are one of the embedded default
+// sets, in any language.
+func isGeneratedDefault(data []byte) bool {
+	entries, err := defaultModesFS.ReadDir(".")
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		embedded, err := defaultModesFS.ReadFile(e.Name())
+		if err == nil && bytes.Equal(data, embedded) {
+			return true
+		}
+	}
+	return false
 }
 
 func GetModeKeyboard() tgbotapi.InlineKeyboardMarkup {

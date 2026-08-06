@@ -338,3 +338,46 @@ func TestBudgetRefusalTextOnAnUnknownError(t *testing.T) {
 		t.Error("an unrecognised error must still produce an explanation")
 	}
 }
+
+func TestSon_HeaderFollowsTheLanguage(t *testing.T) {
+	useLanguage(t, "en")
+
+	store, path := tempHistory(t)
+	store.Append(history.Entry{At: time.Now(), ChatID: 42, Mode: "tldr", Format: "code", Provider: "google", Text: "stored output"})
+
+	runner := &BotRunner{
+		cfg:     &config.Config{AllowAllUsers: true},
+		api:     &mockTelegramClient{},
+		history: reopen(t, path),
+	}
+	runner.handleMessage(context.Background(), commandMessage(42, "/son"))
+
+	texts := strings.Join(sentTexts(runner.api.(*mockTelegramClient)), "\n")
+	if !strings.Contains(texts, "Last output") {
+		t.Errorf("the /son header was not translated:\n%s", texts)
+	}
+	if !strings.Contains(texts, "stored output") {
+		t.Errorf("the stored output itself is missing:\n%s", texts)
+	}
+}
+
+func TestSon_EmptyAndDisabledRepliesFollowTheLanguage(t *testing.T) {
+	useLanguage(t, "en")
+
+	_, path := tempHistory(t)
+	empty := &BotRunner{
+		cfg:     &config.Config{AllowAllUsers: true},
+		api:     &mockTelegramClient{},
+		history: reopen(t, path),
+	}
+	empty.handleMessage(context.Background(), commandMessage(42, "/son"))
+	if texts := strings.Join(sentTexts(empty.api.(*mockTelegramClient)), "\n"); !strings.Contains(texts, "No stored output") {
+		t.Errorf("the empty-history reply was not translated:\n%s", texts)
+	}
+
+	off := &BotRunner{cfg: &config.Config{AllowAllUsers: true}, api: &mockTelegramClient{}}
+	off.handleMessage(context.Background(), commandMessage(42, "/son"))
+	if texts := strings.Join(sentTexts(off.api.(*mockTelegramClient)), "\n"); !strings.Contains(texts, "History is off") {
+		t.Errorf("the disabled-history reply was not translated:\n%s", texts)
+	}
+}

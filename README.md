@@ -37,6 +37,7 @@
 - **📋 Per-Mode Output Formatting:** Every mode declares how its output is rendered — `code` (default) wraps the reply in Telegram `<code>` tags for instant 1-tap clipboard copying, `markdown` renders the model's markdown as real Telegram formatting for prose modes, `plain` sends it verbatim.
 - **💸 Spending Ceiling:** Optional daily and monthly USD caps (`DAILY_COST_LIMIT` / `MONTHLY_COST_LIMIT`) on paid OpenRouter calls. Once a cap is reached the paid fallback is no longer offered and the refusal names the setting behind it; remaining budget is shown in the usage summary. The counter is restored from the history file at startup, so restarting the bot does not hand out a fresh allowance.
 - **🗂️ Persistent History & `/son`:** Every finished output is appended to a JSONL file (`HISTORY_FILE`, default `scribo_history.jsonl`). `/son` replays the most recent output of the chat — rendered in its original mode's format — even after a restart. One JSON object per line, no database and no extra dependency.
+- **🌍 Full Turkish / English Localization:** `SCRIBO_LANG` (or `LANG`) switches both the Telegram interface and the prompts sent to the model, so the bot answers in the language you picked instead of just labelling Turkish answers in English. Catalogs are embedded in the binary; an unset or unknown language falls back to Turkish.
 - **🧩 100% JSON-Driven Modes (`modes.json`):** Prompt instructions and Telegram inline keyboard buttons are managed dynamically via JSON without recompiling code!
 - **⚡ Real-Time Chat Action Indicator:** Sends real-time "typing..." status while downloading audio and generating AI responses.
 - **🔒 Data Privacy Transparency:** Outlines clear privacy options between Google Free Tier ($0) and Paid/OpenRouter (strict privacy, zero model training).
@@ -97,6 +98,12 @@ DEFAULT_PROVIDER=google
 # Models
 GOOGLE_MODEL=gemini-3.6-flash
 OPENROUTER_MODEL=google/gemini-3.6-flash
+
+# Interface and answer language: tr or en. Drives the Telegram messages *and* the
+# prompts, so it decides which language the model answers in. Unset or unknown
+# means Turkish. LANG=en ./scribo works too, but prefer SCRIBO_LANG in this file:
+# a LANG line here is ignored whenever your shell already exports one.
+SCRIBO_LANG=en
 
 # Worker Pool Concurrency Limit (Maximum simultaneous audio processing jobs)
 # Controls how many audio files are processed in parallel. Extra requests wait in queue safely.
@@ -174,6 +181,8 @@ Each mode picks how its output is rendered. The field is optional and defaults t
 | `plain` | Sent verbatim, no formatting applied | Output that already contains markup you want to read literally |
 
 Scribo automatically creates `modes.json` on disk at startup if missing, re-creates the Telegram inline keyboard dynamically with alphabetical custom mode sorting, and applies your custom prompts!
+
+> 🌍 The generated `modes.json` is written in the language `SCRIBO_LANG` selects. If you change the language later, a `modes.json` that is still byte-identical to a shipped default is regenerated automatically — otherwise the interface would switch language while the prompts stayed behind, and the model would keep answering in the old one. A `modes.json` you have edited yourself is never touched: translate it or delete it when you switch.
 
 ---
 

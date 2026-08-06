@@ -194,7 +194,7 @@ func (s *Store) each(fn func(Entry)) error {
 				// A final line without a trailing newline is normal at EOF; only
 				// complain about content that is genuinely malformed.
 				if len(bytes.TrimSpace(line)) > 0 {
-					slog.Warn("⚠️ Geçmiş dosyasında okunamayan satır atlandı", "file", s.path, "error", err)
+					slog.Warn("⚠️ skipped an unreadable line in the history file", "file", s.path, "error", err)
 				}
 			} else {
 				fn(e)

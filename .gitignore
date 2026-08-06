@@ -29,9 +29,13 @@
 !config/*.go
 !history/
 !history/*.go
+!i18n/
+!i18n/*.go
+!i18n/locales/
+!i18n/locales/*.json
 !mode/
 !mode/*.go
-!mode/default_modes.json
+!mode/default_modes.*.json
 !provider/
 !provider/*.go
 
