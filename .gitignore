@@ -13,6 +13,8 @@
 !Makefile
 !README.md
 !README.tr.md
+!CONTRIBUTING.md
+!AGENTS.md
 !go.mod
 !go.sum
 

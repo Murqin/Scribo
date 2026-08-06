@@ -336,6 +336,16 @@ docker compose logs -f
 
 ---
 
+## 🤝 Katkıda Bulunma
+
+Pull request'ler memnuniyetle karşılanır. [CONTRIBUTING.md](CONTRIBUTING.md) kurulumu,
+projenin şeklini belirleyen tasarım kısıtlarını ve test çıtasını anlatır. Kod yazan
+ajanlar onun yerine [AGENTS.md](AGENTS.md) okumalı — aynı konular, direktif hâlinde.
+
+Issue ve tartışma Türkçe ya da İngilizce olabilir; kod ve commit mesajları İngilizce.
+
+---
+
 ## 📄 Lisans
 
 **MIT Lisansı** ile lisanslanmıştır. Ayrıntılar için [LICENSE](LICENSE) dosyasına bakın.
