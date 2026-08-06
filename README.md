@@ -126,7 +126,21 @@ With the default named volume nothing needs configuring. If you switch to a bind
 
 `TZ` belongs in `.env` too, and it is worth setting: the daily spending ceiling rolls over on a local calendar boundary, so an unset zone resets your cap at UTC midnight rather than yours.
 
-> Panels that ask you to fill in `PUID`, `PGID` or `TZ` during import are showing you optional overrides, not blanks you have to complete — the image already defaults them to `1000`, `1000` and `UTC`. Leaving them empty is fine.
+> A panel will not ask you for `PUID`, `PGID` or `TZ` — the image already defaults them to `1000`, `1000` and `UTC`, so they are not declared in the compose file. Set them in `.env`, or add them as extra environment variables in the panel, only if the defaults do not suit you.
+
+### 📥 What a panel asks for
+
+Panels build their import form from the compose file, so Scribo declares exactly the three settings that have no sensible default:
+
+| Field | |
+| :--- | :--- |
+| `TELEGRAM_TOKEN` | required |
+| `ALLOWED_USER_ID` | required unless you set `ALLOW_ALL_USERS=true` |
+| `GEMINI_API_KEY` | required unless you supply `OPENROUTER_API_KEY` instead |
+
+Everything else keeps its default. To change one — `OPENROUTER_API_KEY`, `SCRIBO_LANG`, the spending ceilings — add it as an extra environment variable in the panel, using the names from [`.env.example`](.env.example).
+
+Running compose yourself instead? `.env` covers all of it and the file is optional as far as compose is concerned, so the same `docker-compose.yml` works both ways.
 
 ### 🏠 Per-platform notes
 
