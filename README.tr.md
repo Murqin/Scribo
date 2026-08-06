@@ -144,10 +144,14 @@ Yerelde kurduğunuz imajı çalıştırmak için `docker-compose.yml` içindeki 
 
 ## 💬 Botu Kullanmak
 
-| Komut | Ne yapar |
-| :--- | :--- |
-| `/start` | Botun çalıştığını doğrular ve ne gönderebileceğinizi listeler. |
-| `/son` | Bu sohbetin en son çıktısını, kendi modunun biçimiyle yeniden gösterir. `HISTORY_FILE`dan okunduğu için yeniden başlatmadan sonra da çalışır. |
+| Komut | İngilizce karşılığı | Ne yapar |
+| :--- | :--- | :--- |
+| `/basla` | `/start` | Botun çalıştığını doğrular ve ne gönderebileceğinizi listeler. |
+| `/son` | `/last` | Bu sohbetin en son çıktısını, kendi modunun biçimiyle yeniden gösterir. `HISTORY_FILE`dan okunduğu için yeniden başlatmadan sonra da çalışır. |
+
+Her iki komut açılışta Telegram'a kaydedilir; sohbette `/` yazdığınızda açıklamalarıyla listelenirler, ezberlemeniz gerekmez.
+
+`SCRIBO_LANG` ne olursa olsun iki ad da çalışır; dile göre değişen yalnızca botun tanıttığı addır — hem karşılama mesajında hem o menüde. Özellikle `/start` hiçbir dilde çalışmayı bırakamaz, çünkü Telegram'ın kendi Başlat düğmesi ve `t.me` derin bağlantıları onu gönderir. Takma adın `başla` değil `basla` olmasının sebebi, Telegram'ın komut adlarını `a-z`, `0-9` ve alt çizgiyle sınırlaması.
 
 Yazılacak başka bir şey yok. Sesli not, video, video mesajı, ses dosyası — ya da bunların belge olarak gönderilmiş hâli — gönderin; Scribo `modes.json`daki modlardan oluşan bir satır içi klavye ile karşılık verir, birini seçtiğinizde medyayı işler. Telegram'ın bot API'si dosyaları 20 MB ile sınırlar.
 

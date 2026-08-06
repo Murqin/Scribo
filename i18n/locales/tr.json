@@ -1,4 +1,8 @@
 {
+  "command.start.name": "basla",
+  "command.start.description": "Botun ne kabul ettiğini göster",
+  "command.last.name": "son",
+  "command.last.description": "En son üretilen çıktıyı tekrar göster",
   "bot.start": "🎙️ <b>Scribo Bot Hazır!</b>\nBir ses kaydı, video, video mesajı veya ses dosyası gönderin.\n\n/son — en son üretilen çıktıyı tekrar gösterir.",
   "bot.unsupported_input": "🎙️ Lütfen analiz edilmek üzere bir ses kaydı (Voice note), ses dosyası (MP3, M4A, WAV, FLAC, OGG), video veya video mesajı (MP4, MOV, WEBM, AVI) gönderin.",
   "bot.file_too_large": "⚠️ <b>Hata:</b> Dosya boyutu çok büyük (Maksimum Telegram bot limiti: 20 MB).",
