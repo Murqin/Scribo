@@ -337,14 +337,24 @@ func (b *BotRunner) handleMessage(ctx context.Context, msg *tgbotapi.Message) {
 		return
 	}
 
+	// Every command has an English canonical name and a Turkish alias, and both
+	// are accepted whatever SCRIBO_LANG says. Only the name each catalog
+	// advertises changes with the language. Two reasons the alias is not simply
+	// a translation resolved at runtime: /start is sent by Telegram's own Start
+	// button and by t.me deep links, so it can never stop working in any
+	// language; and a user who switches language mid-life would otherwise find
+	// the command they had learned suddenly gone.
+	//
+	// The aliases are ASCII on purpose — Telegram restricts command names to
+	// a-z, 0-9 and underscore, so "başla" is not expressible.
 	if msg.IsCommand() {
 		switch msg.Command() {
-		case "start":
+		case "start", "basla":
 			reply := tgbotapi.NewMessage(msg.Chat.ID, i18n.T("bot.start"))
 			reply.ParseMode = tgbotapi.ModeHTML
 			b.sendMsg(reply)
 			return
-		case "son":
+		case "last", "son":
 			b.sendLastEntry(msg.Chat.ID, msg.MessageID)
 			return
 		}
