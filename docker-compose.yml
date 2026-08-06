@@ -1,0 +1,71 @@
+# Scribo — container deployment for CasaOS, Cosmos Cloud, Portainer, Dockge and
+# plain `docker compose`.
+#
+# First run:
+#   cp .env.example .env   # then fill in TELEGRAM_TOKEN, ALLOWED_USER_ID, GEMINI_API_KEY
+#   docker compose up -d
+#
+# Named after docker-compose.yml rather than the newer compose.yaml because that
+# is the filename every homelab panel's import dialog looks for.
+
+services:
+  scribo:
+    image: ghcr.io/murqin/scribo:latest
+    # Building from a checkout instead of pulling the published image: comment
+    # out `image:` above and uncomment the two lines below.
+    # build:
+    #   context: .
+    container_name: scribo
+    restart: unless-stopped
+
+    # Secrets and settings come from .env. Compose reads that file host-side and
+    # injects the values as environment variables, which the bot prefers over
+    # any .env it finds on disk — so nothing sensitive has to be mounted.
+    env_file:
+      - .env
+
+    environment:
+      # The daily and monthly spending ceilings roll over on local calendar
+      # boundaries. Without a zone the container is UTC and the daily cap would
+      # reset at the wrong hour.
+      TZ: ${TZ:-Europe/Istanbul}
+      # Ownership the container gives /data before dropping root. Set these to
+      # the host user that owns the directory when using a bind mount; irrelevant
+      # for the named volume below.
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+
+    volumes:
+      # Holds modes.json (written on first run, edit it to change prompts and
+      # buttons) and scribo_history.jsonl (transcripts, /son, and the memory the
+      # spending ceiling is restored from). Losing it hands out a fresh daily
+      # allowance, so it is worth backing up.
+      - scribo-data:/data
+      # Bind mount alternative — CasaOS and Cosmos usually rewrite it to this
+      # form anyway. Run `chown -R 1000:1000 ./data` on the host first, or set
+      # PUID/PGID above to match the directory's owner.
+      # - ./data:/data
+
+    # No `ports:`. Scribo reaches Telegram over outbound long polling, so it
+    # needs no published port, no domain, no certificate and no reverse proxy
+    # entry. Panels that ask for a port during import can be left blank.
+
+    security_opt:
+      - no-new-privileges:true
+
+    # The bot idles around 10 MB; the ceiling is here to turn a runaway into a
+    # restart instead of a swapping host.
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+    # Unbounded json-file logs are the usual way a homelab box fills its disk.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  scribo-data:

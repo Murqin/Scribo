@@ -1,4 +1,4 @@
-.PHONY: build build-linux-amd64 build-linux-arm64 build-windows-amd64 build-windows-arm64 build-darwin-amd64 build-darwin-arm64 release run test clean
+.PHONY: build build-linux-amd64 build-linux-arm64 build-windows-amd64 build-windows-arm64 build-darwin-amd64 build-darwin-arm64 release run test clean docker-build docker-up docker-down docker-logs
 
 LDFLAGS=-ldflags "-s -w"
 
@@ -62,6 +62,22 @@ release: build-linux-amd64 build-linux-arm64 build-windows-amd64 build-windows-a
 
 run: build
 	./scribo
+
+# Container targets. DOCKER is overridable because Podman is a drop-in here
+# (make docker-build DOCKER=podman) — the image needs no Docker-specific feature.
+DOCKER ?= docker
+
+docker-build:
+	$(DOCKER) build -t scribo:local .
+
+docker-up:
+	$(DOCKER) compose up -d
+
+docker-down:
+	$(DOCKER) compose down
+
+docker-logs:
+	$(DOCKER) compose logs -f
 
 test:
 	go test -race -v ./...

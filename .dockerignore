@@ -1,0 +1,24 @@
+# The repository's .gitignore is whitelist-based, so a working checkout carries
+# plenty that git never sees — a real .env, compiled binaries, dist/, the history
+# JSONL. The Dockerfile already copies path by path; this keeps the build context
+# small and makes a stray secret impossible even if that ever changes.
+#
+# `**` rather than `*`: Docker matches patterns against whole paths and `*` stops
+# at a slash, so `*` alone would leave everything below the first level in the
+# context. Each re-inclusion needs `/**` for the same reason.
+**
+
+!go.mod
+!go.sum
+!main.go
+!bot/**
+!budget/**
+!config/**
+!history/**
+!i18n/**
+!mode/**
+!provider/**
+!docker/**
+
+# Test files play no part in the image.
+**/*_test.go
