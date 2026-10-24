@@ -3,6 +3,9 @@
 > **Note:** This project was written largely with AI coding agents to solve my own problems.
 > It is shared as-is, without warranty, and is not reviewed to production standards.
 > Use at your own risk; read the code before running it.
+>
+> **Archived (2026-10-24).** Scribo is no longer maintained. The last release (v0.13.3) and its
+> Docker image remain available as they are; fork it if you want to keep it going.
 
 <p align="center">
   <img src="assets/mascot.jpg" alt="Scribo Mascot" width="180" style="border-radius: 50%;"/>
