@@ -1,5 +1,9 @@
 # Scribo 🎙️ (Go / Golang Edition)
 
+> **Note:** This project was written largely with AI coding agents to solve my own problems.
+> It is shared as-is, without warranty, and is not reviewed to production standards.
+> Use at your own risk; read the code before running it.
+
 <p align="center">
   <img src="assets/mascot.jpg" alt="Scribo Mascot" width="180" style="border-radius: 50%;"/>
 </p>
