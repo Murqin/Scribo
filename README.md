@@ -1,6 +1,7 @@
 # Scribo 🎙️ (Go / Golang Edition)
 
-> **Note:** This project was written largely with AI coding agents to solve my own problems.
+> [!CAUTION]
+> This project was written largely with AI coding agents to solve my own problems.
 > It is shared as-is, without warranty, and is not reviewed to production standards.
 > Use at your own risk; read the code before running it.
 >
